@@ -9,25 +9,74 @@
 //     - Parses fields, records receive timestamp, and appends a JSON object per message to workspace/data/events.jsonl
 //     - latency_ms = recv_ts_ms - msg_ts_ms
 
+// integrated order_book whihc applies upte and prints top of book updates
 
 #include <arpa/inet.h>
 #include <chrono>
+#include <condition_variable>
 #include <csignal>
 #include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <netinet/in.h>
+#include <queue>
 #include <sstream>
 #include <string>
 #include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
+
+#include "../include/event.h"
+#include "../include/order_book.h"
+
 
 // stop flag
 static volatile std::sig_atomic_t keep_running = 1;
 
 void handle_signal(int) { keep_running = 0; }
+
+// small thread-safe queue unsing mutex + condvar
+template <typename T>
+class TSQueue {
+
+public:
+    void push(T item) {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            q_.push(std::move(item));
+        }
+
+        cv_.notify_one();
+    }
+
+    // Blocks until an item is available or shutdown is signalled
+    bool pop(T &out){
+        std::unique_lock<std::mutex> lk(mu_);
+        cv_.wait(lk, [this]() { return !q_.empty() || shutdown_; });
+        if(q_.empty()) return false;
+        out = std::move(q_.front());
+        q_.pop();
+        return true;
+    }
+
+    void notify_shutdown() {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            shutdown_ = true;
+        }
+        cv_.notify_all();
+    }
+
+private:
+    std::queue<T> q_;
+    std::mutex mu_;
+    std::condition_variable cv_;
+    bool shutdown_ = false;
+    
+};
+
 
 //  split a string_view by a single char delimiter into tokens
 static std::vector<std::string_view> split_sv( std::string_view sv, char delim){
@@ -80,30 +129,15 @@ bool to_double(std::string_view sv, double &out) {
     }
 }
 
-// Safe JSON string escape for basic control chars and qoutes
-// (Not a full JSON-escape implementation but sufficient for our simple symbols/strings)
-// static std::string json_escape(const std::string& s){
-//     std::ostringstream o;
-//     for(char c : s){
-//         switch (c)
-//         {
-//             case '\"': o << "\\\""; break;
-//             case '\\': o << "\\\\"; break;
-//             case '\b': o << "\\b"; break;
-//             case '\f': o << "\\f"; break;
-//             case '\n': o << "\\n"; break;
-//             case '\r': o << "\\r"; break;
-//             case '\t': o << "\\t"; break;
-//             default:
-//                 if(static_cast<unsigned char>(c) < 0x20){
-//                     o << "\\u" << std::hex << std::setw(4) << std::setfill('0') << (int)c;
-//                 }else{
-//                     o << c;
-//                 }
-//         }
-//     }
-//     return o.str();
-// }
+// Consumer thread : pop events and forward to OrderBook instance
+void orderbook_consumer(TSQueue<Event>& q, OrderBook& book){
+    Event ev;
+    while(q.pop(ev)) {
+        book.apply_event(ev);
+    }
+    std::cout << "[orderbook_consumer] shutting down\n";
+}
+
 
 // helper: hex print first N bytes
 std::string hex_preview(const uint8_t* data, size_t len, size_t preview = 16){
@@ -172,6 +206,11 @@ int main(int argc, char* argv[]){
         close(sock);
         return 1;
     }
+
+    // Instantiate queue and orderbook, start consumer thread
+    TSQueue<Event> queue;
+    OrderBook book(5);
+    std::thread consumer_thread(orderbook_consumer, std::ref(queue), std::ref(book));
 
     // main receive loop: blocking recvfrom for now
     while(keep_running){
@@ -244,18 +283,34 @@ int main(int argc, char* argv[]){
         // compute latency in milliseconds: recv timestamp - message timestamp
         long long latency_ms = recv_ts_ms - msg_ts;
 
+        // Build Event object
+        Event ev;
+        ev.seq = seq;
+        ev.msg_ts_ms = msg_ts;
+        ev.recv_ts_ms = recv_ts_ms;
+        ev.latency_ms = latency_ms;
+        ev.symbol = symbol;
+        ev.price = price;
+        ev.size = size;
+        {
+            std::ostringstream srcoss;
+            srcoss << src_ip << ":" << src_port;
+            ev.src = srcoss.str();
+        }
+
+
         // Construct a small JSON string manually
         std::ostringstream js;
         js << std::fixed << std::setprecision(2);
         js << "{";
-        js << "\"seq\":" << seq << ",";
-        js << "\"msg_ts_ms\":" << msg_ts << ",";
-        js << "\"recv_ts_ms\":" << recv_ts_ms << ",";
-        js << "\"latency_ms\":" << latency_ms << ",";
-        js << "\"symbol\":\"" << symbol << "\",";
-        js << "\"price\":" << price << ",";
-        js << "\"size\":" << size << ",";
-        js << "\"src\":\"" << src_ip << ":" << src_port << "\"";
+        js << "\"seq\":" << ev.seq << ",";
+        js << "\"msg_ts_ms\":" << ev.msg_ts_ms << ",";
+        js << "\"recv_ts_ms\":" << ev.recv_ts_ms << ",";
+        js << "\"latency_ms\":" << ev.latency_ms << ",";
+        js << "\"symbol\":\"" << ev.symbol << "\",";
+        js << "\"price\":" << ev.price << ",";
+        js << "\"size\":" << ev.size << ",";
+        js << "\"src\":\"" << ev.src << "\"";
         js << "}";
 
         std::string json_line = js.str();
@@ -265,6 +320,9 @@ int main(int argc, char* argv[]){
         outfile << json_line << std::endl;
         outfile.flush();
 
+        // push to in process queue for the order book
+        queue.push(ev);
+
         // Print a short line : timestamp ( ms), source, size, first byets ( hex )
         std::cout << "[ " << recv_ts_ms << " ] seq = " << seq << " " << symbol
                   << " price = " << price
@@ -273,6 +331,9 @@ int main(int argc, char* argv[]){
                   << std::endl;
 
     }
+
+    queue.notify_shutdown();
+    if(consumer_thread.joinable()) consumer_thread.join();
 
 
     std::cout << "[udp_receiver] Shutting down\n";
