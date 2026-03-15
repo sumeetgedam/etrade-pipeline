@@ -5,6 +5,9 @@
 *.o
 *.exe
 
+# CPP
+cpp/build/
+
 # Python
 __pycache__/
 *.pyc
