@@ -7,6 +7,7 @@
 //     - Receives text messages of the form : <seq>|<iso-ts-ms>|<SYM>|<price>|<size>
 //         eg "1|16788800000000|AAPL|173.42|100"
 //     - Parses fields, records receive timestamp, and appends a JSON object per message to workspace/data/events.jsonl
+//     - latency_ms = recv_ts_ms - msg_ts_ms
 
 
 #include <arpa/inet.h>
@@ -240,6 +241,9 @@ int main(int argc, char* argv[]){
             continue;
         }
 
+        // compute latency in milliseconds: recv timestamp - message timestamp
+        long long latency_ms = recv_ts_ms - msg_ts;
+
         // Construct a small JSON string manually
         std::ostringstream js;
         js << std::fixed << std::setprecision(2);
@@ -247,6 +251,7 @@ int main(int argc, char* argv[]){
         js << "\"seq\":" << seq << ",";
         js << "\"msg_ts_ms\":" << msg_ts << ",";
         js << "\"recv_ts_ms\":" << recv_ts_ms << ",";
+        js << "\"latency_ms\":" << latency_ms << ",";
         js << "\"symbol\":\"" << symbol << "\",";
         js << "\"price\":" << price << ",";
         js << "\"size\":" << size << ",";
@@ -264,6 +269,7 @@ int main(int argc, char* argv[]){
         std::cout << "[ " << recv_ts_ms << " ] seq = " << seq << " " << symbol
                   << " price = " << price
                   << " size = " << size
+                  << " latency_ms = " << latency_ms
                   << std::endl;
 
     }
