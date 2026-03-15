@@ -1,0 +1,23 @@
+# Build artifacts
+/build/
+/bin/
+/out/
+*.o
+*.exe
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+env/
+venv/
+
+# VS code
+.vscode/
+
+# Docker
+**/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
