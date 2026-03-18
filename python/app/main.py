@@ -13,6 +13,7 @@ from pathlib import Path
 import json
 import os
 import statistics
+import time
 
 # Prometheus client imports
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
@@ -310,10 +311,16 @@ def get_metrics_prometheus(tail: int = Query(1000, ge=1, le=100000)):
 
 
 @app.get("/book")
-def get_book(symbol: str = Query(..., min_length = 1)):
+def get_book(symbol: str = Query(..., min_length = 1), max_age_ms: int = Query(5000, ge=0)):
     """
     Return the latest per-symbol orderbook snapshot written by the C++ OrderBook
     snapshot path : data/book_<SYMBOL>/json
+
+    Parameters:
+        - symbol: required symbol string
+        - max_age_ms: maximum allowed snapshot age in milliseconds ( default 5000)
+                        if snapshot's last updatedms is older tan this, returns 404
+                        Use max_age_ms = 0 to diable TTL check (accept any age)
     """
     safe_symbol = symbol.strip()
     if not safe_symbol:
@@ -321,11 +328,31 @@ def get_book(symbol: str = Query(..., min_length = 1)):
     
     path = Path(f"data/book_{safe_symbol}.json")
     if not path.exists():
+        print(path)
         raise HTTPException(status_code=400, detail=f"snapshot not found for symbol {safe_symbol}")
     
     try:
         with open(path, "r", encoding="utf-8") as f:
             content = json.load(f)
-        return content
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"failed to read snapshot: {str(e)}")
+
+    # TTL check 
+    if 'last_updated_ms' not in content:
+        raise HTTPException(status_code=404, detail="snapshot missing last_updated_ms, cannot verify freshness")
+
+    try:
+        last_updated_ms = int(content["last_updated_ms"])
+    except Exception:
+        raise HTTPException(status_code=500, detail="invalid last_updated_ms in snapshot")
+    
+    now_ms = int(time.time() * 1000)
+
+    age_ms = now_ms - last_updated_ms
+    if max_age_ms > 0 and age_ms > max_age_ms:
+        raise HTTPException(
+            status_code = 404,
+            detail=f"snapshot stale: age_ms = {age_ms} exceed max_age_ms = {max_age_ms}"
+        )
+    
+    return content
