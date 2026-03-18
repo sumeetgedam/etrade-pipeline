@@ -22,7 +22,18 @@ Repository layout ( top-level )
 
 What this project implementts (current)
 - Minimal UDP receiver (cpp/src/udp_receiver.cpp) that:
-
+    - binds to UDP port, receives datagrams, timestamps arrival
+    - parses simple text feed messages : seq|msg_ts_ms|SYM|price|size
+    - appends parsed JSONL lines to /data/events.jsonl
+    - computes latency_ms = recv_ts_ms - msg_ts_ms
+    - forward parsed Event objects to an in-process Orderbook consumer via a TSQueue
+- Simple L2 orderbook skeleton( cpp/src/order_book.cpp) that maintains top levels per symbol and prints updates
+- Python FastAPI service (python/app/main.py) exposing :
+    - GET /events?tail=N -> last N events (JSON)
+    - GET /metrics?tail=N -> JSO/n latency stats (p50/p95/p99, hidtogram)
+    - GET /metrics_prometheus?tail=N -> Prometheus exposition (histogram + counters + percentile gauges)
+- A small python/scripts/send_udp.py to generate test messages
+- scripts/dev-setup.sh for venv creation and dependency installation
 
 Monorepo for a toy end to end electronic trading pipeline:
 - cpp/ : low-latency components ( feed handler, order book, gateway )

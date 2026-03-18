@@ -14,7 +14,7 @@ import socket
 import time
 import argparse
 
-def make_msg(seq, symbol="AAPL", price=174.23, size=100):
+def make_msg(seq, symbol="AAPL", price=171.23, size=100):
     ts_ms = int(time.time() * 1000)
     return f"{seq}|{ts_ms}|{symbol}|{price:.2f}|{size}".encode()
 

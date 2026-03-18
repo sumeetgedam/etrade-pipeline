@@ -307,3 +307,25 @@ def get_metrics_prometheus(tail: int = Query(1000, ge=1, le=100000)):
     
     # return Prometheus exposition format
     return generate_latest(registry), 200, {"Content-Type": CONTENT_TYPE_LATEST}
+
+
+@app.get("/book")
+def get_book(symbol: str = Query(..., min_length = 1)):
+    """
+    Return the latest per-symbol orderbook snapshot written by the C++ OrderBook
+    snapshot path : data/book_<SYMBOL>/json
+    """
+    safe_symbol = symbol.strip()
+    if not safe_symbol:
+        raise HTTPException(status_code=400, detail="symbol is required")
+    
+    path = Path(f"data/book_{safe_symbol}.json")
+    if not path.exists():
+        raise HTTPException(status_code=400, detail=f"snapshot not found for symbol {safe_symbol}")
+    
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = json.load(f)
+        return content
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"failed to read snapshot: {str(e)}")
