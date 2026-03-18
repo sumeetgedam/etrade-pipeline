@@ -11,6 +11,10 @@
 
 // integrated order_book whihc applies upte and prints top of book updates
 
+// Now uses SPSCQueue<Event> instead of TSQueue (mutex+condvar)
+// - Producer will drop events if the queue is full ( and lof a short warning )
+// - Consumer polls the queue and uses a small backoff when empty
+
 #include <arpa/inet.h>
 #include <chrono>
 #include <condition_variable>
@@ -27,9 +31,11 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+#include <functional>
 
 #include "../include/event.h"
 #include "../include/order_book.h"
+#include "../include/spsc_queue.h"
 
 
 // stop flag
@@ -130,11 +136,27 @@ bool to_double(std::string_view sv, double &out) {
 }
 
 // Consumer thread : pop events and forward to OrderBook instance
-void orderbook_consumer(TSQueue<Event>& q, OrderBook& book){
+void orderbook_consumer(SPSCQueue<Event>& q, OrderBook& book, size_t empty_spin_limit){
     Event ev;
-    while(q.pop(ev)) {
-        book.apply_event(ev);
+    size_t spin = 0;
+    while(true) {
+        while(q.pop(ev)) {
+            // apply all available items
+            book.apply_event(ev);
+            spin = 0;
+        }
+        // if shutdown requested and queue empty, exit
+        if(q.is_shutdown() && q.empty()) break;
+
+        // backoff strategy: spin a few time then sleep to avoi busy loop
+        if(spin < empty_spin_limit) {
+            ++spin;
+            std::this_thread::yield();
+        }else{
+            std::this_thread::sleep_for(std::chrono::microseconds(200));
+        }
     }
+    
     std::cout << "[orderbook_consumer] shutting down\n";
 }
 
@@ -207,10 +229,17 @@ int main(int argc, char* argv[]){
         return 1;
     }
 
-    // Instantiate queue and orderbook, start consumer thread
-    TSQueue<Event> queue;
-    OrderBook book(5);
-    std::thread consumer_thread(orderbook_consumer, std::ref(queue), std::ref(book));
+    // Instantiate SPSC queue and orderbook, start consumer thread
+    const size_t queue_capacity = 8192; // must be power of two
+    SPSCQueue<Event> queue(queue_capacity);
+    OrderBook book(5); // keep 5 levels per symbol for demo
+    // std::thread consumer_thread(orderbook_consumer, std::ref(queue), std::ref(book));
+    //  error: static assertion failed: std::thread arguments must be invocable after conversion to rvalues
+    // cmpiler had triuble instantiating std::thread call, missing <funcational> in toolchain
+    // we can replace std::ref wuth a small lambda that captures refernces
+    std::thread consumer_thread([&queue, &book]() {
+        orderbook_consumer(queue, book, /*empty_sin_limit=*/100);
+    });
 
     // main receive loop: blocking recvfrom for now
     while(keep_running){
@@ -312,7 +341,7 @@ int main(int argc, char* argv[]){
         js << "\"size\":" << ev.size << ",";
         js << "\"src\":\"" << ev.src << "\"";
         js << "}";
-
+        
         std::string json_line = js.str();
     
 
@@ -320,8 +349,14 @@ int main(int argc, char* argv[]){
         outfile << json_line << std::endl;
         outfile.flush();
 
-        // push to in process queue for the order book
-        queue.push(ev);
+        // push to SPSC queue for the orderbook, drop if full
+        if(!queue.push(std::move(ev))) {
+            std::cerr << "[queue][warn] full, dropping seq = " << seq
+                    << " symbol = " << symbol << std::endl;
+        }else {
+            std::cout << "[queue] pushed seq = " << seq << " symbol = " << symbol << std::endl;
+        }
+
 
         // Print a short line : timestamp ( ms), source, size, first byets ( hex )
         std::cout << "[ " << recv_ts_ms << " ] seq = " << seq << " " << symbol
