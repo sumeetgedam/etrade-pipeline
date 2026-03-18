@@ -3,6 +3,9 @@
 #include <sstream>
 #include <fstream>
 #include <filesystem>
+#include <chrono>
+#include <iomanip>
+#include <unistd.h> // tfor getpid()
 
 OrderBook::OrderBook(size_t max_levels) : max_levels_(max_levels) {
     // ensure data directory exists so snapshot writes succeed
@@ -11,6 +14,25 @@ OrderBook::OrderBook(size_t max_levels) : max_levels_(max_levels) {
     }catch(...) {}
 }
 OrderBook::~OrderBook() = default;
+
+// helper to formatrecv_ts_ms ( milliseconds since epoch ) as ISO8601 UTC string with ms
+static std::string iso8601_from_ms(long long ms_since_epoch) {
+    using namespace std::chrono;
+    system_clock::time_point tp = system_clock::time_point(milliseconds(ms_since_epoch));
+    std::time_t t = system_clock::to_time_t(tp);
+    std::tm tm{};
+#if defined(_WIN32)
+    gmtime_s(&tm, &t);
+#else
+    gmtime_r(&t, &tm);
+#endif
+    auto ms_part = ms_since_epoch % 1000;
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
+    oss << '.' << std::setw(3) << std::setfill('0') << ms_part << 'Z';
+    return oss.str();
+
+}
 
 // Apply a simple update: 
 // - if price equals the current top price, update size
@@ -44,6 +66,8 @@ void OrderBook::apply_event(const Event& ev) {
     if(!levels.empty()){
         oss << " top_price = " << levels.front().price
             << " top_size = " << levels.front().size;
+    }else {
+        oss << " (empty)";
     }
         
     oss << " seq = " << ev.seq
@@ -52,9 +76,12 @@ void OrderBook::apply_event(const Event& ev) {
     std::cout << oss.str() << std::endl;
 
     // write per-symbol snapshot file ( overwrite )
-    try{
+    // try{
         std::ostringstream js;
-        js << "{ \"symbol\": \"" << ev.symbol << "\", \"levels\" : [ ";
+        js << "{ \"symbol\": \"" << ev.symbol << "\",";
+        js << "\"last_updated_ms\":" << ev.recv_ts_ms << ",";
+        js << "\"last_updated_iso\":\"" << iso8601_from_ms(ev.recv_ts_ms) << "\",";
+        js << "\"levels\" : [ ";
         bool first = true;
         for(const auto &lvl : levels) {
             if (!first) js << ", ";
@@ -62,23 +89,50 @@ void OrderBook::apply_event(const Event& ev) {
             first = false;
         }
         js << "] }";
-        std::string path = "../../data/book_" + ev.symbol + ".json";
-        std::ofstream ofs(path, std::ios::trunc);
-        if(!ofs.is_open()){
-            std::cerr << "[orderbook][error] cannot wrtie snapshot to " << path << std::endl;
-            
-        }else{
-            ofs << js.str();
-            ofs.flush();
-            // success (optional debug)
-            // std::cout << "[orderbook] snapshot written to " << path << std::endl;
-        }
+        std::string json_content = js.str();
 
-    }catch(const std::exception &e) {
-        std::cerr << "[order][error] snapshot write exception : " << e.what() << std::endl;
-    }catch(...){
-        std::cerr << "[orderbook][error] unknown snapshot write failure\n";
-    }
+        // Atomic write to tmp file then rename
+        try{
+            std::string base_path = "../../data/book_" + ev.symbol + ".json";
+            std::ostringstream tmposs;
+            tmposs << base_path << ".tmp." << getpid();
+            std::string tmp_path = tmposs.str();
+
+            {
+                std::ofstream ofs(tmp_path, std::ios::binary | std::ios::trunc);
+                if(!ofs.is_open()){
+                    std::cerr << "[orderbook][error] cannot open tmp snapshot " << tmp_path << std::endl;
+                }else {
+                    ofs << json_content;
+                    ofs.flush();
+                    ofs.close();
+                    // rename is atomic on POSIX when replacing within same filesystem
+                    std::filesystem::rename(tmp_path, base_path);
+                }
+            }
+        
+        }catch (const std::exception &e) {
+            std::cerr << "[orderbook][error] snapshot write exception : " << e.what() << std::endl;
+        }catch(...){
+            std::cerr << "[orderbook][error] unknown snapshot write failure\n";
+        }
+        // std::string path = "../../data/book_" + ev.symbol + ".json";
+        // std::ofstream ofs(path, std::ios::trunc);
+        // if(!ofs.is_open()){
+        //     std::cerr << "[orderbook][error] cannot wrtie snapshot to " << path << std::endl;
+            
+        // }else{
+        //     ofs << js.str();
+        //     ofs.flush();
+        //     // success (optional debug)
+        //     // std::cout << "[orderbook] snapshot written to " << path << std::endl;
+        // }
+
+    // }catch(const std::exception &e) {
+    //     std::cerr << "[order][error] snapshot write exception : " << e.what() << std::endl;
+    // }catch(...){
+    //     std::cerr << "[orderbook][error] unknown snapshot write failure\n";
+    // }
 
 }
 
