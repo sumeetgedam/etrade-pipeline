@@ -47,7 +47,7 @@ void OrderBook::apply_event(const Event& ev) {
               << std::endl;
 
     std::lock_guard<std::mutex> lk(mu_);
-    auto &levels = books_[ev.symbol];
+    auto &levels = books_[std::string(ev.symbol)];
 
     if(!levels.empty() && levels.front().price == ev.price){
         // updating existing top level size
@@ -93,7 +93,7 @@ void OrderBook::apply_event(const Event& ev) {
 
         // Atomic write to tmp file then rename
         try{
-            std::string base_path = "../../data/book_" + ev.symbol + ".json";
+            std::string base_path = "../../data/book_" + std::string(ev.symbol) + ".json";
             std::ostringstream tmposs;
             tmposs << base_path << ".tmp." << getpid();
             std::string tmp_path = tmposs.str();

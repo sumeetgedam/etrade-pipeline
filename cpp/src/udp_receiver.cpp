@@ -36,6 +36,7 @@
 #include "../include/event.h"
 #include "../include/order_book.h"
 #include "../include/spsc_queue.h"
+#include <cstring>
 
 
 // stop flag
@@ -294,7 +295,8 @@ int main(int argc, char* argv[]){
             continue;
         }
 
-        std::string symbol(tokens[2]);
+        // std::string symbol(tokens[2]);
+        std::string symbol_tok(tokens[2]);
         double price = 0.0;
         if(!to_double(tokens[3], price)){
             std::cerr << "[parse error] invalid price : '" << std::string(tokens[3])
@@ -318,7 +320,7 @@ int main(int argc, char* argv[]){
         ev.msg_ts_ms = msg_ts;
         ev.recv_ts_ms = recv_ts_ms;
         ev.latency_ms = latency_ms;
-        ev.symbol = symbol;
+        ev.set_symbol(symbol_tok);
         ev.price = price;
         ev.size = size;
         {
@@ -352,14 +354,14 @@ int main(int argc, char* argv[]){
         // push to SPSC queue for the orderbook, drop if full
         if(!queue.push(std::move(ev))) {
             std::cerr << "[queue][warn] full, dropping seq = " << seq
-                    << " symbol = " << symbol << std::endl;
+                    << " symbol = " << symbol_tok << std::endl;
         }else {
-            std::cout << "[queue] pushed seq = " << seq << " symbol = " << symbol << std::endl;
+            std::cout << "[queue] pushed seq = " << seq << " symbol = " << ev.symbol << std::endl;
         }
 
 
         // Print a short line : timestamp ( ms), source, size, first byets ( hex )
-        std::cout << "[ " << recv_ts_ms << " ] seq = " << seq << " " << symbol
+        std::cout << "[ " << recv_ts_ms << " ] seq = " << seq << " " << ev.symbol
                   << " price = " << price
                   << " size = " << size
                   << " latency_ms = " << latency_ms
