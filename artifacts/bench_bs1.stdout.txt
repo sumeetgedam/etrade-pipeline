@@ -1,0 +1,18 @@
+[bench] sending 50 msgs to 127.0.0.1:9000 at target 5000/s symbol - AAPL
+[bench] done sending : sent= 50 elapsed_s [ 0.033]s achieved_rate = 1512.1/s last_seq = 50
+[bench] analyzing events.jsonl.....
+sleeping for 10s to get the events reflected to
+{
+  "parsed_count": 0,
+  "inferred_drops": 50,
+  "seq_range": [
+    null,
+    null
+  ],
+  "latency_Stats": {
+    "count": 0
+  }
+}
+
+
+STDERR:

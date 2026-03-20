@@ -21,7 +21,7 @@ import json
 import statistics
 from pathlib import Path
 
-EVENTS_FILE = Path("data/events.jsonl")
+EVENTS_FILE = Path("./data/events.jsonl")
 
 def now_ms():
     return int(time.time() * 1000)
@@ -91,7 +91,8 @@ def send_messages(host, port, count, rate, symbol, start_seq=1):
 def analyze_events(expect_sent, last_seq):
     # wait to allow receiver to flush to disk
 
-    time.sleep(5)
+    print("sleeping for 10s to get the events reflected to")
+    time.sleep(10)
     if not EVENTS_FILE.exists():
         return {"error": f"{EVENTS_FILE} not found"}
     

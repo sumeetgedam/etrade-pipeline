@@ -17,10 +17,15 @@ struct Event
     char symbol[SYMBOL_LEN];
     double price = 0.0;
     long long size = 0;
-    std::string src; // eg, "127.0.0.1:9000" , less frequent
+    // std::string src; // eg, "127.0.0.1:9000" , less frequent
+
+    // Fixed-size src buffer
+    static constexpr size_t SRC_LEN = 64;
+    char src[SRC_LEN];
 
     Event(){
         symbol[0] = '\0';
+        src[0] = '\0';
     }
 
     // helper to set symbol safely from a string_view / c-string
@@ -35,4 +40,16 @@ struct Event
     void set_symbol(const std::string& s) {
         set_symbol(s.c_str(),s.size());
     }
+
+    void set_src(const char* s, size_t n){
+        if(!s) { src[0] = '\0'; return; }
+        size_t copy_n = (n < SRC_LEN - 1) ? n : (SRC_LEN - 1);
+        std::memcpy(src, s, copy_n);
+        src[copy_n] = '\0';
+    }
+
+    void set_src(const std::string& s) {
+        set_src(s.c_str(), s.size());
+    }
+
  };

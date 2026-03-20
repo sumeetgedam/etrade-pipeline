@@ -1,0 +1,6 @@
+batch_size,sent,elapsed_s,achieved_rate,last_seq,parsed_count,inferred_drops,seq_min,seq_max,lat_count,lat_min,lat_mean,lat_median,lat_p95,lat_p99,lat_stddev,recevier_rc,bench_rc,receiver_stdout_file,receiver_stderr_file,bemch_stdout_file
+1,,,,,0,50,,,,,,,,,,-9,0,artifacts/receiver_bs1.stdout.txt,artifacts/receiver_bs1.stderr.txt,artifacts/bench_bs1.stdout.txt
+8,,,,,0,50,,,,,,,,,,0,0,artifacts/receiver_bs8.stdout.txt,artifacts/receiver_bs8.stderr.txt,artifacts/bench_bs8.stdout.txt
+16,,,,,0,50,,,,,,,,,,0,0,artifacts/receiver_bs16.stdout.txt,artifacts/receiver_bs16.stderr.txt,artifacts/bench_bs16.stdout.txt
+32,,,,,0,50,,,,,,,,,,0,0,artifacts/receiver_bs32.stdout.txt,artifacts/receiver_bs32.stderr.txt,artifacts/bench_bs32.stdout.txt
+64,,,,,0,50,,,,,,,,,,0,0,artifacts/receiver_bs64.stdout.txt,artifacts/receiver_bs64.stderr.txt,artifacts/bench_bs64.stdout.txt

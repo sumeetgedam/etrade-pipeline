@@ -1,0 +1,101 @@
+[udp_receiver] Listening on 0.0.0.0 : 9000 (press Ctrl+C to stop)
+[queue] pushed seq = [orderbook] apply_event called seq= 1 symbol = AAPL
+[ 1774002463072 ] seq = 1 AAPL price = 1 symbol = AAPL price = 100 size = 100 latency_ms = 1
+100 size = 100 latency_ms = 1
+[queue] pushed seq = 3 symbol = AAPL
+[ 1774002463120 ] seq = 3 AAPL price = 100.02 size = 102 latency_ms = 48
+[queue] pushed seq = 5 symbol = AAPL
+[ 1774002463120 ] seq = 5 AAPL price = 100.04 size = 104 latency_ms = 48
+[queue] pushed seq = 7 symbol = AAPL
+[ 1774002463120 ] seq = 7 AAPL price = 100.06 size = 106 latency_ms = 47
+[orderbook] symbol = AAPL top_price = 100 top_size = 100 seq = 1 latency_ms = 1
+[queue] pushed seq = 9 symbol = AAPL
+[ 1774002463120 ] seq = 9 AAPL price = 100.08 size = 108 latency_ms = 47
+[queue] pushed seq = 11 symbol = AAPL
+[ 1774002463120 ] seq = 11 AAPL price = 100.1 size = 100 latency_ms = 47
+[queue] pushed seq = 13 symbol = AAPL
+[ 1774002463120 ] seq = 13 AAPL price = 100.12 size = 102 latency_ms = 46
+[queue] pushed seq = 15 symbol = AAPL
+[ 1774002463120 ] seq = 15 AAPL price = 100.14 size = 104 latency_ms = 46
+[queue] pushed seq = 17 symbol = AAPL
+[ 1774002463120 ] seq = 17 AAPL price = 100.16 size = 106 latency_ms = 45
+[queue] pushed seq = 19 symbol = AAPL
+[ 1774002463120 ] seq = 19 AAPL price = 100.18 size = 108 latency_ms = 45
+[queue] pushed seq = 21 symbol = AAPL
+[ 1774002463120 ] seq = 21 AAPL price = 100.2 size = 100 latency_ms = 45
+[queue] pushed seq = 23 symbol = AAPL
+[ 1774002463120 ] seq = 23 AAPL price = 100.22 size = 102 latency_ms = 44
+[queue] pushed seq = 25 symbol = AAPL
+[ 1774002463120 ] seq = 25 AAPL price = 100.24 size = 104 latency_ms = 44
+[queue] pushed seq = 27 symbol = AAPL
+[ 1774002463120 ] seq = 27 AAPL price = 100.26 size = 106 latency_ms = 43
+[queue] pushed seq = 29 symbol = AAPL
+[ 1774002463120 ] seq = 29 AAPL price = 100.28 size = 108 latency_ms = 16
+[queue] pushed seq = 31 symbol = AAPL
+[ 1774002463121 ] seq = 31 AAPL price = 100.3 size = 100 latency_ms = 17
+[queue] pushed seq = 33 symbol = AAPL
+[ 1774002463121 ] seq = 33 AAPL price = 100.32 size = 102 latency_ms = 17
+[queue] pushed seq = 35 symbol = AAPL
+[ 1774002463121 ] seq = 35 AAPL price = 100.34 size = 104 latency_ms = 17
+[queue] pushed seq = 37 symbol = AAPL
+[ 1774002463121 ] seq = 37 AAPL price = 100.36 size = 106 latency_ms = 17
+[queue] pushed seq = 39 symbol = AAPL
+[ 1774002463121 ] seq = 39 AAPL price = 100.38 size = 108 latency_ms = 17
+[queue] pushed seq = 41 symbol = AAPL
+[ 1774002463121 ] seq = 41 AAPL price = 100.4 size = 100 latency_ms = 17
+[queue] pushed seq = 43 symbol = AAPL
+[ 1774002463121 ] seq = 43 AAPL price = 100.42 size = 102 latency_ms = 17
+[queue] pushed seq = 45 symbol = AAPL
+[ 1774002463121 ] seq = 45 AAPL price = 100.44 size = 104 latency_ms = 17
+[queue] pushed seq = 47 symbol = AAPL
+[ 1774002463121 ] seq = 47 AAPL price = 100.46 size = 106 latency_ms = 17
+[queue] pushed seq = 49 symbol = AAPL
+[ 1774002463121 ] seq = 49 AAPL price = 100.48 size = 108 latency_ms = 17
+[orderbook] apply_event called seq= 3 symbol = AAPL price = 100.02 size = 102 latency_ms = 48
+[orderbook] symbol = AAPL top_price = 100.02 top_size = 102 seq = 3 latency_ms = 48
+[orderbook] apply_event called seq= 5 symbol = AAPL price = 100.04 size = 104 latency_ms = 48
+[orderbook] symbol = AAPL top_price = 100.04 top_size = 104 seq = 5 latency_ms = 48
+[orderbook] apply_event called seq= 7 symbol = AAPL price = 100.06 size = 106 latency_ms = 47
+[orderbook] symbol = AAPL top_price = 100.06 top_size = 106 seq = 7 latency_ms = 47
+[orderbook] apply_event called seq= 9 symbol = AAPL price = 100.08 size = 108 latency_ms = 47
+[orderbook] symbol = AAPL top_price = 100.08 top_size = 108 seq = 9 latency_ms = 47
+[orderbook] apply_event called seq= 11 symbol = AAPL price = 100.1 size = 100 latency_ms = 47
+[orderbook] symbol = AAPL top_price = 100.1 top_size = 100 seq = 11 latency_ms = 47
+[orderbook] apply_event called seq= 13 symbol = AAPL price = 100.12 size = 102 latency_ms = 46
+[orderbook] symbol = AAPL top_price = 100.12 top_size = 102 seq = 13 latency_ms = 46
+[orderbook] apply_event called seq= 15 symbol = AAPL price = 100.14 size = 104 latency_ms = 46
+[orderbook] symbol = AAPL top_price = 100.14 top_size = 104 seq = 15 latency_ms = 46
+[orderbook] apply_event called seq= 17 symbol = AAPL price = 100.16 size = 106 latency_ms = 45
+[orderbook] symbol = AAPL top_price = 100.16 top_size = 106 seq = 17 latency_ms = 45
+[orderbook] apply_event called seq= 19 symbol = AAPL price = 100.18 size = 108 latency_ms = 45
+[orderbook] symbol = AAPL top_price = 100.18 top_size = 108 seq = 19 latency_ms = 45
+[orderbook] apply_event called seq= 21 symbol = AAPL price = 100.2 size = 100 latency_ms = 45
+[orderbook] symbol = AAPL top_price = 100.2 top_size = 100 seq = 21 latency_ms = 45
+[orderbook] apply_event called seq= 23 symbol = AAPL price = 100.22 size = 102 latency_ms = 44
+[orderbook] symbol = AAPL top_price = 100.22 top_size = 102 seq = 23 latency_ms = 44
+[orderbook] apply_event called seq= 25 symbol = AAPL price = 100.24 size = 104 latency_ms = 44
+[orderbook] symbol = AAPL top_price = 100.24 top_size = 104 seq = 25 latency_ms = 44
+[orderbook] apply_event called seq= 27 symbol = AAPL price = 100.26 size = 106 latency_ms = 43
+[orderbook] symbol = AAPL top_price = 100.26 top_size = 106 seq = 27 latency_ms = 43
+[orderbook] apply_event called seq= 29 symbol = AAPL price = 100.28 size = 108 latency_ms = 16
+[orderbook] symbol = AAPL top_price = 100.28 top_size = 108 seq = 29 latency_ms = 16
+[orderbook] apply_event called seq= 31 symbol = AAPL price = 100.3 size = 100 latency_ms = 17
+[orderbook] symbol = AAPL top_price = 100.3 top_size = 100 seq = 31 latency_ms = 17
+[orderbook] apply_event called seq= 33 symbol = AAPL price = 100.32 size = 102 latency_ms = 17
+[orderbook] symbol = AAPL top_price = 100.32 top_size = 102 seq = 33 latency_ms = 17
+[orderbook] apply_event called seq= 35 symbol = AAPL price = 100.34 size = 104 latency_ms = 17
+[orderbook] symbol = AAPL top_price = 100.34 top_size = 104 seq = 35 latency_ms = 17
+[orderbook] apply_event called seq= 37 symbol = AAPL price = 100.36 size = 106 latency_ms = 17
+[orderbook] symbol = AAPL top_price = 100.36 top_size = 106 seq = 37 latency_ms = 17
+[orderbook] apply_event called seq= 39 symbol = AAPL price = 100.38 size = 108 latency_ms = 17
+[orderbook] symbol = AAPL top_price = 100.38 top_size = 108 seq = 39 latency_ms = 17
+[orderbook] apply_event called seq= 41 symbol = AAPL price = 100.4 size = 100 latency_ms = 17
+[orderbook] symbol = AAPL top_price = 100.4 top_size = 100 seq = 41 latency_ms = 17
+[orderbook] apply_event called seq= 43 symbol = AAPL price = 100.42 size = 102 latency_ms = 17
+[orderbook] symbol = AAPL top_price = 100.42 top_size = 102 seq = 43 latency_ms = 17
+[orderbook] apply_event called seq= 45 symbol = AAPL price = 100.44 size = 104 latency_ms = 17
+[orderbook] symbol = AAPL top_price = 100.44 top_size = 104 seq = 45 latency_ms = 17
+[orderbook] apply_event called seq= 47 symbol = AAPL price = 100.46 size = 106 latency_ms = 17
+[orderbook] symbol = AAPL top_price = 100.46 top_size = 106 seq = 47 latency_ms = 17
+[orderbook] apply_event called seq= 49 symbol = AAPL price = 100.48 size = 108 latency_ms = 17
+[orderbook] symbol = AAPL top_price = 100.48 top_size = 108 seq = 49 latency_ms = 17

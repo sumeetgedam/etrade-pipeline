@@ -13,6 +13,9 @@
 // - Designed for Event (non-trivial) where copies/moves are acceptable
 // - Uses memory_order semantics appropriate for SPSC usage
 
+// - push_bulk allows pushing multiple items in one call ( returns number pushed )
+//
+
 template<typename T>
 class SPSCQueue { 
 
@@ -54,6 +57,29 @@ public:
         buffer_[tail] = std::move(item);
         tail_.store(next, std::memory_order_release);
         return true;
+    }
+
+    // bulk push : attempt to push up to n items from `items`
+    // returns number actually pushed (0..n)
+    size_t push_bulk(T* items, size_t n) {
+        if (n==0) return 0;
+        size_t head = head_.load(std::memory_order_acquire);
+        size_t tail = tail_.load(std::memory_order_relaxed);
+        // current size = (tail - head ) & mask_
+        size_t size = (tail - head) & mask_;
+        size_t free_slots = mask_ - size;
+        if(free_slots == 0) return 0;
+        size_t to_push = (n <= free_slots) ? n : free_slots;
+
+        // copy / move items into ring slots
+        for (size_t i = 0; i < to_push; ++i) { 
+            size_t idx = (tail + i) & mask_;
+            buffer_[idx] = std::move(items[i]);
+        }
+
+        // advance tail
+        tail_.store((tail+to_push) & mask_, std::memory_order_release);
+        return to_push;
     }
 
     // try to pop an item, returns trye if an item was popped
