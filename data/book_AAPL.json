@@ -1,1 +1,1 @@
-{ "symbol": "AAPL","last_updated_ms":1774010059807,"last_updated_iso":"2026-03-20T12:34:19.807Z","levels" : [ { "price" : 100.99, "size": 109 }, { "price" : 100.98, "size": 108 }, { "price" : 100.97, "size": 107 }, { "price" : 100.96, "size": 106 }, { "price" : 100.95, "size": 105 }] }
+{ "symbol": "AAPL","last_updated_ms":1774091770079,"last_updated_iso":"2026-03-21T11:16:10.079Z","levels" : [ { "price" : 100.49, "size": 109 }, { "price" : 100.48, "size": 108 }, { "price" : 100.47, "size": 107 }, { "price" : 100.46, "size": 106 }, { "price" : 100.45, "size": 105 }] }

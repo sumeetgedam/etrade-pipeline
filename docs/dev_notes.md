@@ -44,3 +44,30 @@ curl "http://127.0.0.1:8000/events?tail=5"
 
 
 pkill -f "uvicorn python.main.app" || true
+
+
+ curl -s http://127.0.0.1:9100/metrics
+# HELP udp_receiver_processed_events_total number of processed events
+# TYPE udp_receiver_processed_events_total_counter
+udp_receiver_processed_events_total 993
+# HELP udp_receiver_dropped_events_total Number of events dropped due to queue full
+# TYPE udp_receiver_dropped_events_total counter
+udp_receiver_dropped_evenet_total 0
+# HELP udp_receiver_batches_received_total Number of recvmmsg batches received
+# TYPE udp_receiver_batches_received_total counter
+# udp_receiver_batches_received 32
+# HELP udp_receiver_write_errors_total Number of write errors whe persisting events
+# TYPE udp_receiver_write_errors_total counter
+udp_receiver_write_errors_total 0
+# HELP udp_receiver_last_latency_ms last observed latency(ms)
+# TYPE udp_receiver_last_latency_ms gauge
+udp_receiver_last_latency_ms 17
+# HELP udp_receiver_queue_size Approximate queue occupany
+# TYPE udp_receiver_queue_size gauge
+udp_receiver_queue_size 0
+
+
+ls -l /proc/1229/fd | grep events
+l-wx------ 1 root root 64 Mar 20 10:28 4 -> /data/events.jsonl
+
+

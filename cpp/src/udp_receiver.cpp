@@ -48,6 +48,8 @@
 #include <filesystem>
 #include <atomic>
 #include <netdb.h>
+#include <signal.h>
+#include <sys/time.h>
 
 #include "../include/event.h"
 #include "../include/order_book.h"
@@ -58,7 +60,10 @@
 // stop flag
 static volatile std::sig_atomic_t keep_running = 1;
 
-void handle_signal(int) { keep_running = 0; }
+void handle_signal(int) { 
+    keep_running = 0;
+    std::cerr << "[signal] SIGINT received, shutting down\n";
+}
 
 
 // Metrics ( atomic )
@@ -287,6 +292,55 @@ void orderbook_consumer(SPSCQueue<Event>& q, OrderBook& book, size_t empty_spin_
     std::cout << "[orderbook_consumer] shutting down\n";
 }
 
+// Robust writev loop : continue until all bytes represented by iovecs are written
+// advances through iovecs on partial writes
+static bool writev_all(int fd, iovec* iov, int iovcnt) {
+    // compute total bytes
+    size_t total = 0;
+    for(int i = 0; i < iovcnt; ++i) total += iov[i].iov_len;
+    size_t written_total = 0;
+    int idx = 0;
+    size_t offset = 0;
+
+    while(written_total < total) {
+        // prepare iovec slice starting at idx / offset
+        iovec tmp[64]; // stack buffer for a chunk of iovecs, 64 should be enough for batches, fall if larger
+        int tmpcnt = 0;
+        for(int i = idx; i < iovcnt && tmpcnt < 64; ++i) {
+            const char* base = static_cast<const char*>(iov[i].iov_base);
+            size_t len = iov[i].iov_len;
+            if(i == idx && offset > 0) {
+                base += offset;
+                len -= offset;
+            }
+            tmp[tmpcnt].iov_base = const_cast<char*>(base);
+            tmp[tmpcnt].iov_len = len;
+            ++tmpcnt;
+        }
+
+        ssize_t w = ::writev(fd, tmp, tmpcnt);
+        if(w < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+
+        written_total += static_cast<size_t>(w);
+        size_t remaining = static_cast<size_t>(w);
+        while(remaining > 0 && idx < iovcnt) {
+            size_t cur_avail = iov[idx].iov_len - offset;
+            if(remaining < cur_avail) {
+                offset += remaining;
+                remaining = 0;
+            }else {
+                remaining -= cur_avail;
+                ++idx;
+                offset = 0;
+            }
+        }
+
+    }
+    return true;
+}
 
 // helper: hex print first N bytes
 std::string hex_preview(const uint8_t* data, size_t len, size_t preview = 16){
@@ -310,7 +364,16 @@ int main(int argc, char* argv[]){
     if(batch_size < 1) batch_size = 1;
 
     // Register SIGINT handler to allow graceful shutdown
-    std::signal(SIGINT, handle_signal);
+    // std::signal(SIGINT, handle_signal);
+    struct sigaction sa;
+    std::memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_signal;
+    sigemptyset(&sa.sa_mask);
+
+    sa.sa_flags = 0;
+    if(sigaction(SIGINT, &sa, nullptr) < 0){
+        std::perror("sigaction");
+    }
 
     // Create UDP socket (IPv4)
     int sock = ::socket(AF_INET, SOCK_DGRAM, 0);
@@ -318,6 +381,14 @@ int main(int argc, char* argv[]){
         std::perror("socket");
         return 1;
     }
+
+    struct timeval rto;
+    rto.tv_sec = 0;
+    rto.tv_usec = 200000; // 200ms
+    if(setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &rto, sizeof(rto)) < 0) {
+        std::perror("setsockopt SO_RCVTIMEO");
+    }
+
 
     // Allow quick reuse of address/port 
     int one = 1;
@@ -344,7 +415,7 @@ int main(int argc, char* argv[]){
         return 1;
     }
 
-    std::cout << "[udp_receiver] Listening on 0.0.0.0 : " << port << " (press Ctrl+C to stop)\n";
+    std::cout << "[udp_receiver] Listening on 0.0.0.0 : " << port << " batch_size = " << batch_size << " (press Ctrl+C to stop)\n";
 
     // Preallocate buffer to avoid reallocation in loop
     std::vector<uint8_t> buffer(65536);
@@ -431,9 +502,14 @@ int main(int argc, char* argv[]){
 
             if(received < 0){
                 if(errno == EINTR) continue;
-                std::perror("recvmmsg");
+                if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
+                // std::perror("recvmmsg");
+                std::cerr << "[error] recvmmdg failed errno = " << errno << " (" << std::strerror(errno) << ")\n";
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
                 // fallback to single recvfrom once
-                received = 0;
+                // received = 0;
 
             }
 
@@ -447,6 +523,12 @@ int main(int argc, char* argv[]){
             events.reserve(received);
             std::string batched;
             batched.reserve(received * 128);
+
+            // prepare per-line buffers and iovec array for wtitev
+            std::vector<std::string> lines;
+            lines.reserve(received);
+            std::vector<iovec> write_iovs;
+            write_iovs.reserve(received);
 
             for(int i = 0 ; i < received; ++i) {
                 ssize_t n = msgs[i].msg_len;
@@ -529,7 +611,11 @@ int main(int argc, char* argv[]){
                     ev.symbol, ev.price, ev.size, ev.src);
 
                 if(wrote > 0){
-                    batched.append(tmp_buf, static_cast<size_t>(wrote));
+                    lines.emplace_back(tmp_buf, static_cast<size_t>(wrote));
+                    iovec iov;
+                    iov.iov_base = const_cast<char*>(lines.back().data());
+                    iov.iov_len = lines.back().size();
+                    write_iovs.push_back(iov);
                 }else {
                     std::cerr << "[error] snprintf failed for seq = " << seq << std::endl;
                 }
@@ -546,22 +632,30 @@ int main(int argc, char* argv[]){
                 // std::cout << "[" << recv_ts_ms << "] seq = " << seq << " " << ev.symbol << " latency_ms = " << latency_ms << std::endl;
  
             }
-            // write batched bytes in a single syscall
-            if(!batched.empty()){
-                const char* ptr = batched.data();
-                ssize_t to_write = static_cast<ssize_t>(batched.size());
-                while(to_write > 0) {
-                    ssize_t w = ::write(out_fd, ptr, static_cast<size_t>(to_write));
-                    if(w < 0){
-                        if(errno == EINTR) continue;
-                        std::perror("write");
-                        m_write_errors.fetch_add(1, std::memory_order_relaxed);
-                        break;
-                    }
-                    to_write -= w;
-                    ptr += w;
+            // write per-line iovecs via writev_all
+            if(!write_iovs.empty()) {
+                if(!writev_all(out_fd, write_iovs.data(), static_cast<int>(write_iovs.size()))) {
+                    std::perror("writev_all");
+                    m_write_errors.fetch_add(1, std::memory_order_relaxed);
                 }
             }
+
+            // write batched bytes in a single syscall
+            // if(!batched.empty()){
+            //     const char* ptr = batched.data();
+            //     ssize_t to_write = static_cast<ssize_t>(batched.size());
+            //     while(to_write > 0) {
+            //         ssize_t w = ::write(out_fd, ptr, static_cast<size_t>(to_write));
+            //         if(w < 0){
+            //             if(errno == EINTR) continue;
+            //             std::perror("write");
+            //             m_write_errors.fetch_add(1, std::memory_order_relaxed);
+            //             break;
+            //         }
+            //         to_write -= w;
+            //         ptr += w;
+            //     }
+            // }
 
             // bulk push events into SPSC
             if(!events.empty()){
@@ -705,7 +799,7 @@ int main(int argc, char* argv[]){
 
         size_t pushed  = queue.push_bulk(&ev, 1);
         if(pushed > 0) {
-            m_dropped_events.fetch_add(1, std::memory_order_relaxed); 
+            m_processed_events.fetch_add(1, std::memory_order_relaxed); 
             // std::cerr << "[queue][warn] pushed 0 of 1 events, dropping seq = " << ev.seq << "\n";
         }else{
             m_dropped_events.fetch_add(1, std::memory_order_relaxed);
