@@ -23,6 +23,9 @@
 
 // + metrics endpoint
 
+// refactored to provide run_udp_receiver(stop, port, batch_size) so
+// the engine can call it in-process, main() still parses argv and calls run_udp_receiver
+
 #include <arpa/inet.h>
 #include <chrono>
 #include <condition_variable>
@@ -54,16 +57,19 @@
 #include "../include/event.h"
 #include "../include/order_book.h"
 #include "../include/spsc_queue.h"
+#include "../include/book_registry.h"
 
+
+using namespace std::chrono_literals;
 
 
 // stop flag
-static volatile std::sig_atomic_t keep_running = 1;
+// static volatile std::sig_atomic_t keep_running = 1;
 
-void handle_signal(int) { 
-    keep_running = 0;
-    std::cerr << "[signal] SIGINT received, shutting down\n";
-}
+// void handle_signal(int) { 
+//     keep_running = 0;
+//     std::cerr << "[signal] SIGINT received, shutting down\n";
+// }
 
 
 // Metrics ( atomic )
@@ -76,8 +82,8 @@ static std::atomic<long long> m_last_latency_ms{-1};
 // pointer to queue for runtime gauge sampling (set in main)
 static SPSCQueue<Event>* g_queue_ptr = nullptr;
 
-// simple metrics HTTP server 
-void metrics_server(unsigned short port) {
+// simple metrics HTTP server : serves a Prometheus text exposition response
+static void metrics_server(std::atomic<bool> &stop, unsigned short port) {
     int srv = ::socket(AF_INET, SOCK_STREAM, 0);
     if(srv < 0) {
         std::perror("metrics socket");
@@ -107,12 +113,20 @@ void metrics_server(unsigned short port) {
     std::cout << "[metrics] listening on 0.0.0.0 : " << port << std::endl;
 
     // accept loop
-    while(keep_running) {
+    while(!stop.load(std::memory_order_acquire)) {
         sockaddr_in peer;
         socklen_t plen = sizeof(peer);
+        // use accept with short timeout
+        // put socket in non-blocking mode or rely on select 
+        // set timeout using pll is heavier
+        // here accept will be interrupted by close when stopping
         int c = accept(srv, reinterpret_cast<sockaddr*>(&peer), &plen);
         if(c < 0){
             if (errno == EINTR) continue;
+            if(errno == EAGAIN || errno == EWOULDBLOCK ) {
+                std::this_thread::sleep_for(50ms);
+                continue;
+            }
             std::perror("metrics accept");
             break;
         }
@@ -268,10 +282,10 @@ bool to_double(std::string_view sv, double &out) {
 }
 
 // Consumer thread : pop events and forward to OrderBook instance
-void orderbook_consumer(SPSCQueue<Event>& q, OrderBook& book, size_t empty_spin_limit){
+void orderbook_consumer(SPSCQueue<Event>& q, OrderBook& book, std::atomic<bool> &stop, size_t empty_spin_limit = 100){
     Event ev;
     size_t spin = 0;
-    while(true) {
+    while(!stop.load(std::memory_order_acquire)) {
         while(q.pop(ev)) {
             // apply all available items
             book.apply_event(ev);
@@ -355,38 +369,17 @@ std::string hex_preview(const uint8_t* data, size_t len, size_t preview = 16){
     return oss.str();
 }
 
-int main(int argc, char* argv[]){
-    // Usage: usp_receiver [port]
-    int port = 9000;
-    size_t batch_size = 1;
-    if(argc >= 2) port = std::stoi(argv[1]);
-    if(argc >= 3) batch_size = static_cast<size_t>(std::stoi(argv[2]));
-    if(batch_size < 1) batch_size = 1;
 
-    // Register SIGINT handler to allow graceful shutdown
-    // std::signal(SIGINT, handle_signal);
-    struct sigaction sa;
-    std::memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = handle_signal;
-    sigemptyset(&sa.sa_mask);
 
-    sa.sa_flags = 0;
-    if(sigaction(SIGINT, &sa, nullptr) < 0){
-        std::perror("sigaction");
-    }
-
+// refactorred run function
+// returns when stop becomes true or on fatal error
+int run_udp_receiver(std::atomic<bool> &stop, int port, size_t batch_size) {
+    
     // Create UDP socket (IPv4)
     int sock = ::socket(AF_INET, SOCK_DGRAM, 0);
     if(sock < 0){
         std::perror("socket");
         return 1;
-    }
-
-    struct timeval rto;
-    rto.tv_sec = 0;
-    rto.tv_usec = 200000; // 200ms
-    if(setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &rto, sizeof(rto)) < 0) {
-        std::perror("setsockopt SO_RCVTIMEO");
     }
 
 
@@ -397,9 +390,17 @@ int main(int argc, char* argv[]){
     }
 
     // Increase receive buffer moderately
-    int rcvbuf = 4 * 1024 * 1024; // 4MB
+    int rcvbuf = 8 * 1024 * 1024; // 8MB
     if(setsockopt( sock, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) < 0){
         std::perror("setsockopt SO_RCVBUF");
+    }
+
+    // make recvfrom non-blocking timeout fallback
+    struct timeval rto;
+    rto.tv_sec = 0;
+    rto.tv_usec = 200000; // 200ms
+    if(setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &rto, sizeof(rto)) < 0) {
+        std::perror("setsockopt SO_RCVTIMEO");
     }
 
     // Bind to all interfaces on specified port
@@ -443,18 +444,24 @@ int main(int argc, char* argv[]){
     // Instantiate SPSC queue and orderbook, start consumer thread
     const size_t queue_capacity = 65536; // larger to avoid drops
     SPSCQueue<Event> queue(queue_capacity);
+    g_queue_ptr = &queue;
     OrderBook book(5); // keep 5 levels per symbol for demo
+    // if an in-process global order book is registered
+    // prefer that book by forwading applied events to it
+    OrderBook* global_book = get_global_order_book();
+    OrderBook* consumer_book = global_book ? global_book : &book;
+
     // std::thread consumer_thread(orderbook_consumer, std::ref(queue), std::ref(book));
     //  error: static assertion failed: std::thread arguments must be invocable after conversion to rvalues
     // cmpiler had triuble instantiating std::thread call, missing <funcational> in toolchain
     // we can replace std::ref wuth a small lambda that captures refernces
-    std::thread consumer_thread([&queue, &book]() {
-        orderbook_consumer(queue, book, /*empty_sin_limit=*/100);
+    std::thread consumer_thread([&queue, consumer_book, &stop]() {
+        orderbook_consumer(queue, *consumer_book, stop, /*empty_sin_limit=*/100);
     });
 
 
     // start metrics server thread
-    std::thread metrics_thread([](){ metrics_server(9100); });
+    std::thread metrics_thread([&stop](){ metrics_server(stop, 9100); });
 
     // reusable buffer for JSON line
     char tmp_buf[512];
@@ -490,7 +497,7 @@ int main(int argc, char* argv[]){
 
     // main receive loop: blocking recvfrom for now
     // eithe batched recvmmsg ( linux ) or recvfrom
-    while(keep_running){
+    while(!stop.load(std::memory_order_acquire)){
 #if defined(__linux__)
         if(batch_size > 1) {
             // short timeout so we dont block too long when traffice is low
@@ -501,7 +508,7 @@ int main(int argc, char* argv[]){
             int received = recvmmsg(sock, msgs.data(), static_cast<unsigned int>(MAX_BATCH), 0, &timeout);
 
             if(received < 0){
-                if(errno == EINTR) continue;
+                if (errno == EINTR) continue;
                 if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
                 // std::perror("recvmmsg");
                 std::cerr << "[error] recvmmdg failed errno = " << errno << " (" << std::strerror(errno) << ")\n";
@@ -685,7 +692,8 @@ int main(int argc, char* argv[]){
         std::vector<char> buf(8192);
         ssize_t got = recvfrom(sock, buf.data(), buf.size(), 0, reinterpret_cast<sockaddr*>(&src), &src_len);
         if(got < 0) {
-            if(errno == EINTR) continue;
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
             std::perror("recvfrom");
             continue;
         }
@@ -702,7 +710,7 @@ int main(int argc, char* argv[]){
         inet_ntop(AF_INET, &src.sin_addr, src_ip, sizeof(src_ip));
         uint16_t src_port = ntohs(src.sin_port);
 
-        // PArse message 
+        // Parse message 
         std::string_view sv(reinterpret_cast<char*>(buffer.data()), static_cast<size_t>(n));
         auto tokens = split_sv(sv, '|');
 
@@ -816,22 +824,10 @@ int main(int argc, char* argv[]){
     }
 
     queue.notify_shutdown();
+    stop.store(true, std::memory_order_release);
     if(consumer_thread.joinable()) consumer_thread.join();
-
-    // stop metrucs
-    keep_running = 0;
-    int wake = ::socket(AF_INET, SOCK_STREAM, 0);
-    if(wake >= 0) {
-        sockaddr_in maddr;
-        std::memset(&maddr, 0, sizeof(maddr));
-        maddr.sin_family = AF_INET;
-        maddr.sin_port = htons(9100);
-        inet_pton(AF_INET, "127.0.0.1", &maddr.sin_addr);
-        connect(wake, reinterpret_cast<sockaddr*>(&maddr), sizeof(maddr));
-        close(wake);
-    }
-
     if(metrics_thread.joinable()) metrics_thread.join();
+    
 
     if(out_fd >= 0){
         close(out_fd);
@@ -840,5 +836,25 @@ int main(int argc, char* argv[]){
     std::cout << "[udp_receiver] Shutting down\n";
     close(sock);
     return 0;
+}
+
+#ifndef ENGINE_BUILD
+int main(int argc, char* argv[]){
+    int port = 9000;
+    size_t batch_size = 1;
+    if(argc >= 2) port = std::stoi(argv[1]);
+    if(argc >= 3) batch_size = static_cast<size_t>(std::stoi(argv[2]));
+    std::atomic<bool> stop(false);
+
+    // Install a simple sigaction to allow Crtl + C to stop the loop
+    struct sigaction sa;
+    std::memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = [](int) {};
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, nullptr);
+
+    return run_udp_receiver(stop, port, batch_size);
 
 }
+#endif

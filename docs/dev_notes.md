@@ -71,3 +71,109 @@ ls -l /proc/1229/fd | grep events
 l-wx------ 1 root root 64 Mar 20 10:28 4 -> /data/events.jsonl
 
 
+python3 python/scripts/benchmark_sender.py --count 5000 --rate 2000 --symbol AAPL
+
+
+python3 python/scripts/order_client.py --host 127.0.0.1 --port 9999 --orders 10 --symbol AAPL --side BUY --price 101.00 --size 100
+
+./engine 9000 32 9999 1000000
+[engine] starting engine : udp_port = 9000 udp_batch = 32 gw_port = 9999 gw_max_size = 1000000
+[udp_receiver] Listening on 0.0.0.0 : 9000 batch_size = 32 (press Ctrl+C to stop)
+[metrics] listening on 0.0.0.0 : 9100
+[execution_gateway] listening on 0.0.0.0:9999 max_size = 1000000 (press Ctrl+C to stop)
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway-metrics] processed = 0 rejected = 0 filled = 0
+[gateway] accepted connection from 127.0.0.1 : 46252 fd = 8
+[gateway] client handler started fd = 8
+[gateway] received line : 'ORDER|cli1|BUY|AAPL|101.00|100'
+[gateway] received line : 'ORDER|cli2|BUY|AAPL|101.00|100'
+[gateway] received line : 'ORDER|cli3|BUY|AAPL|101.00|100'
+[gateway-metrics] processed = 3 rejected = 0 filled = 4
+[gateway] received line : 'ORDER|cli4|BUY|AAPL|101.00|100'
+[gateway] received line : 'ORDER|cli5|BUY|AAPL|101.00|100'
+[gateway] received line : 'ORDER|cli6|BUY|AAPL|101.00|100'
+[gateway] received line : 'ORDER|cli7|BUY|AAPL|101.00|100'
+[gateway] received line : 'ORDER|cli8|BUY|AAPL|101.00|100'
+[gateway] received line : 'ORDER|cli9|BUY|AAPL|101.00|100'
+[gateway] received line : 'ORDER|cli10|BUY|AAPL|101.00|100'
+[gateway-metrics] processed = 10 rejected = 0 filled = 18
+[gateway-metrics] processed = 10 rejected = 0 filled = 18
+[gateway-metrics] processed = 10 rejected = 0 filled = 18
+[gateway-metrics] processed = 10 rejected = 0 filled = 18
+[gateway-metrics] processed = 10 rejected = 0 filled = 18
+[gateway-metrics] processed = 10 rejected = 0 filled = 18
+[gateway-metrics] processed = 10 rejected = 0 filled = 18
+[gateway] accepted connection from 127.0.0.1 : 36432 fd = 9
+[gateway] client handler started fd = 9
+[gateway] received line : 'ORDER|cli1|BUY|AAPL|101.00|10000000'
+[gateway] received line : 'ORDER|cli2|BUY|AAPL|101.00|10000000'
+[gateway] received line : 'ORDER|cli3|BUY|AAPL|101.00|10000000'
+[gateway] received line : 'ORDER|cli4|BUY|AAPL|101.00|10000000'
+[gateway] received line : 'ORDER|cli5|BUY|AAPL|101.00|10000000'
+[gateway] received line : 'ORDER|cli6|BUY|AAPL|101.00|10000000'
+[gateway] received line : 'ORDER|cli7|BUY|AAPL|101.00|10000000'
+[gateway] received line : 'ORDER|cli8|BUY|AAPL|101.00|10000000'
+[gateway] received line : 'ORDER|cli9|BUY|AAPL|101.00|10000000'
+[gateway] received line : 'ORDER|cli10|BUY|AAPL|101.00|10000000'
+[gateway-metrics] processed = 10 rejected = 10 filled = 18
+[gateway-metrics] processed = 10 rejected = 10 filled = 18
+[gateway-metrics] processed = 10 rejected = 10 filled = 18
+[gateway-metrics] processed = 10 rejected = 10 filled = 18
+[gateway-metrics] processed = 10 rejected = 10 filled = 18
+[gateway-metrics] processed = 10 rejected = 10 filled = 18
+[gateway-metrics] processed = 10 rejected = 10 filled = 18
+[gateway-metrics] processed = 10 rejected = 10 filled = 18
+[gateway-metrics] processed = 10 rejected = 10 filled = 18
+[gateway] accepted connection from 127.0.0.1 : 41634 fd = 8
+[gateway] client handler started fd = 8
+[gateway] received line : 'ORDER|cli1|BUY|AAPL|100.07|100'
+[gateway-metrics] processed = 11 rejected = 10 filled = 20
+[gateway] received line : 'ORDER|cli2|BUY|AAPL|100.44|100'
+[gateway] received line : 'ORDER|cli3|BUY|AAPL|100.25|100'
+[gateway] received line : 'ORDER|cli4|BUY|AAPL|100.21|100'
+[gateway] received line : 'ORDER|cli5|BUY|AAPL|99.91|100'
+[gateway] received line : 'ORDER|cli6|BUY|AAPL|99.81|100'
+[gateway] received line : 'ORDER|cli7|BUY|AAPL|100.42|100'
+[gateway] received line : 'ORDER|cli8|BUY|AAPL|99.94|100'
+[gateway] received line : 'ORDER|cli9|BUY|AAPL|99.65|100'
+[gateway] received line : 'ORDER|cli10|BUY|AAPL|100.14|100'
+[gateway-metrics] processed = 20 rejected = 10 filled = 38
+[gateway-metrics] processed = 20 rejected = 10 filled = 38
+[gateway] accepted connection from 127.0.0.1 : 57062 fd = 9
+[gateway] client handler started fd = 9
+[gateway] received line : 'ORDER|cli1|SELL|AAPL|99.71|100'
+[gateway] received line : 'ORDER|cli2|BUY|AAPL|99.89|100'
+[gateway] received line : 'ORDER|cli3|SELL|AAPL|99.97|100'
+[gateway] received line : 'ORDER|cli4|BUY|AAPL|100.15|100'
+[gateway] received line : 'ORDER|cli5|SELL|AAPL|100.02|100'
+[gateway] received line : 'ORDER|cli6|BUY|AAPL|100.00|100'
+[gateway] received line : 'ORDER|cli7|SELL|AAPL|100.21|100'
+[gateway] received line : 'ORDER|cli8|SELL|AAPL|99.63|100'
+[gateway] received line : 'ORDER|cli9|BUY|AAPL|99.65|100'
+[gateway] received line : 'ORDER|cli10|SELL|AAPL|99.89|100'
+[gateway-metrics] processed = 30 rejected = 10 filled = 46
+[gateway-metrics] processed = 30 rejected = 10 filled = 46
+[gateway-metrics] processed = 30 rejected = 10 filled = 46
+[gateway-metrics] processed = 30 rejected = 10 filled = 46
+^C[orderbook_consumer] shutting down
+[engine] shutdown requested, waiting for threads
+[gateway-metrics] processed = 30 rejected = 10 filled = 46
+^C
+
+
+
+
+./engine 9000 32 9999 100000 9100

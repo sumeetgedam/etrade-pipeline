@@ -19,12 +19,17 @@
 #include <iomanip>
 #include <signal.h>
 
-static volatile std::sig_atomic_t keep_running = 1;
+#include "../include/order_book.h"
+#include "../include/book_registry.h"
 
-void handle_sigint(int) { 
-    keep_running = 0; 
-    std::cerr << "[signal] SIGINT received, shutting down\n";
-}
+using namespace std::chrono_literals;
+
+// static volatile std::sig_atomic_t keep_running = 1;
+
+// void handle_sigint(int) { 
+//     keep_running = 0; 
+//     std::cerr << "[signal] SIGINT received, shutting down\n";
+// }
 
 // simple counters
 static std::atomic<uint64_t> processed_orders{0};
@@ -76,9 +81,9 @@ static std::pair<double, double> read_top_of_book(const std::string &sym) {
     if(colon == std::string::npos) return {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN()};
 
     size_t i = colon + 1;
-    while(i < content.size() && (content[i] == ' ' || content[i] == '\t')) ++i;
+    while((i < content.size()) && (content[i] == ' ' || content[i] == '\t')) ++i;
     std::string num;
-    while(i < content.size() && (content[i] >= '0' && content[i] <= '9' || content[i] =='-' || content[i] == '.')) {
+    while((i < content.size()) && ((content[i] >= '0' && content[i] <= '9') || content[i] =='-' || content[i] == '.')) {
         num.push_back(content[i++]);
     }
 
@@ -93,28 +98,41 @@ static std::pair<double, double> read_top_of_book(const std::string &sym) {
 
 
 // handle a single client cnnection ( line - based protocol )
-void handle_client(int fd, long long max_size) {
+void handle_client(std::atomic<bool> &stop, int fd, long long max_size) {
     std::cout << "[gateway] client handler started fd = " << fd << "\n";
     constexpr int BUF_SZ = 8192;
     std::string readbuf;
     readbuf.reserve(2048);
     char buf[BUF_SZ];
-    while(keep_running) {
+
+    struct timeval rto;
+    rto.tv_sec = 0;
+    rto.tv_usec = 200000; // 200ms
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rto, sizeof(rto));
+
+    while(!stop.load(std::memory_order_acquire)) {
         ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
         
         if(n == 0) break; // client closed
         if(n < 0) {
-            if(errno = EINTR) continue;
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK ){
+                std::this_thread::sleep_for(10ms);
+                continue;
+            }
             break;
         }
         readbuf.append(buf, static_cast<size_t>(n));
         // process fill lines
-        size_t pos;
-        while((pos = readbuf.find('\n')) != std::string::npos) {
-            
+        // size_t pos;
+        while(true) {
+            auto pos = readbuf.find('\n');
+            if(pos == std::string::npos) break;
             std::string line = trim(readbuf.substr(0, pos + 1));
             readbuf.erase(0, pos + 1);
             if(line.empty()) continue;
+
+            std::cout << "[gateway] received line : '" << line << "'\n";
 
             // expected ORDER|<cl_ord_id>|<side>|<symbol>|<price>|<size>
             std::vector<std::string> parts;
@@ -130,7 +148,6 @@ void handle_client(int fd, long long max_size) {
             std::string clid = parts[1];
             std::string side = parts[2];
             std::string sym = parts[3];
-            std::cout << clid << " " << side << " " << sym << "\n";
             double price = 0.0;
             long long size = 0;
             try { price = std::stod(parts[4]); } catch(...) { price = NAN; }
@@ -156,34 +173,63 @@ void handle_client(int fd, long long max_size) {
             ::send(fd, ack.data(), ack.size() , 0);
             processed_orders.fetch_add(1);
 
-            // read top-of-book snapshot to decide an immediate fill
-            auto [best_bid, best_offer] = read_top_of_book(sym);
-            bool do_fill = false;
-            double fill_price = price;
-            if(!std::isnan(best_bid) && !std::isnan(best_offer)) {
-                if(side == "BUY") {
-                    if(!std::isnan(best_offer) && price >= best_offer) {
-                        do_fill = true;
-                        fill_price = best_offer;
-                    }
-                }else{
-                    if(!std::isnan(best_bid) && price <= best_bid) {
-                        do_fill = true;
-                        fill_price = best_bid;
+            // try in-process OrderBook first
+            OrderBook* ob = get_global_order_book();
+            if(ob) {
+                // build order object and call match order
+                OrderBook::Order in;
+                in.clid = clid;
+                in.side = (side=="BUY") ? OrderBook::Order::BUY : OrderBook::Order::SELL;
+                in.symbol = sym;
+                in.price = price;
+                in.size = size;
+
+                auto fills = ob->match_order(in);
+                for(const auto &f : fills) {
+                    std::ostringstream os;
+                    os << "FILL|" << f.clid << "|" << f.size << "|" <<std::fixed << std::setprecision(2) << f.price << "\n";
+                    std::string fill = os.str();
+                    ::send(fd, fill.data(), fill.size(), 0);
+                    filled_orders.fetch_add(1);
+                }
+            }else{
+                // fallback existing file based top-of-book logic unchanged
+                // read top-of-book snapshot to decide an immediate fill
+                auto [best_bid, best_offer] = read_top_of_book(sym);
+                if(!std::isnan(best_bid) && !std::isnan(best_offer)) {
+                    if(side == "BUY") {
+                        if(!std::isnan(best_offer) && price >= best_offer) {
+                            std::ostringstream os;
+                            os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << best_offer << "\n";
+                            std::string fill = os.str();
+                            ::send(fd, fill.data(), fill.size(), 0);
+                            filled_orders.fetch_add(1);
+                        }
+                    }else{
+                        if(!std::isnan(best_bid) && price <= best_bid) {
+                            std::ostringstream os;
+                            os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << best_bid << "\n";
+                            std::string fill = os.str();
+                            ::send(fd, fill.data(), fill.size(), 0);
+                            filled_orders.fetch_add(1);
+
+                        }
                     }
                 }
             }
 
+            
+
             // simulate immediate fill if crossing
-            if(do_fill) {
-                std::ostringstream os;
-                os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << fill_price << "\n";
-                std::string fill = os.str();
-                ::send(fd, fill.data(), fill.size(), 0);
-                filled_orders.fetch_add(1);
-            }else{
-                // No immediate fill, for this simple gateway we just ACK and do not manage
-            }
+            // if(do_fill) {
+            //     std::ostringstream os;
+            //     os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << fill_price << "\n";
+            //     std::string fill = os.str();
+            //     ::send(fd, fill.data(), fill.size(), 0);
+            //     filled_orders.fetch_add(1);
+            // }else{
+            //     // No immediate fill, for this simple gateway we just ACK and do not manage
+            // }
 
 
         }
@@ -192,8 +238,8 @@ void handle_client(int fd, long long max_size) {
 }
 
 // Periodically print counters to stdout  ( helpful while debugging)
-void metrics_printer() {
-    while(keep_running) {
+void metrics_printer(std::atomic<bool> &stop) {
+    while(!stop.load(std::memory_order_acquire)) {
         std::this_thread::sleep_for(std::chrono::seconds(5));
         std::cout << "[gateway-metrics] processed = " << processed_orders.load()
                 << " rejected = " << rejected_orders.load()
@@ -202,24 +248,9 @@ void metrics_printer() {
     }
 }
 
-int main(int argc, char* argv[]){
-    int port = 9999;
-    long long max_size = DEFAULT_MAX_SIZE;
-    if(argc >= 2) port = std::stoi(argv[1]);
-    if(argc >= 3) max_size = std::stoll(argv[2]);
 
-    // std::signal(SIGINT, handle_sigint);
-    struct sigaction sa;
-    std::memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = handle_sigint;
-    sigemptyset(&sa.sa_mask);
-    // Important do not set SA_RESTART so blocking syscalls return EINTR
-    sa.sa_flags = 0;
-    if(sigaction(SIGINT, &sa, nullptr) < 0) {
-        std::perror("sigaction");
-    }
-    
 
+int run_execution_gateway(std::atomic<bool> &stop, int port, long long max_size) {
     int srv = ::socket(AF_INET, SOCK_STREAM, 0);
     if(srv < 0) { 
         std::perror("socket"); 
@@ -250,14 +281,18 @@ int main(int argc, char* argv[]){
                 << " max_size = " << max_size << " (press Ctrl+C to stop)\n";
 
 
-    std::thread print_thread(metrics_printer);
+    std::thread print_thread([&stop](){ metrics_printer(stop); });
 
-    while(keep_running) {
+    while(!stop.load(std::memory_order_acquire)) {
         sockaddr_in peer;
         socklen_t plen = sizeof(peer);
         int c = accept(srv, reinterpret_cast<sockaddr*>(&peer), &plen);
         if ( c < 0) {
-            if(errno == EINTR) continue;
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                std::this_thread::sleep_for(10ms);
+                continue;
+            }
             std::perror("accept");
             break;
         }
@@ -268,14 +303,38 @@ int main(int argc, char* argv[]){
         std::cout << "[gateway] accepted connection from " << peer_ip << " : " << peer_port << " fd = " << c << "\n";
 
         // spawn client handler thread
-        std::thread t(handle_client, c, max_size);
+        std::thread t(handle_client, std::ref(stop), c, max_size);
         t.detach();
     }
 
-    keep_running = 0;
+    // keep_running = 0;
     close(srv);
 
-    if(print_thread.joinable()) print_thread.join();
-    std::cout << "[execution_gateway] exiting\n";
+    // if(print_thread.joinable()) print_thread.join();
+    // std::cout << "[execution_gateway] exiting\n";
     return 0;
 }
+
+#ifndef ENGINE_BUILD
+int main(int argc, char* argv[]){
+    int port = 9999;
+    long long max_size = DEFAULT_MAX_SIZE;
+    if(argc >= 2) port = std::stoi(argv[1]);
+    if(argc >= 3) max_size = std::stoll(argv[2]);
+
+    std::atomic<bool> stop(false);
+    // std::signal(SIGINT, handle_sigint);
+    struct sigaction sa;
+    std::memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = [](int){};
+    sigemptyset(&sa.sa_mask);
+    // Important do not set SA_RESTART so blocking syscalls return EINTR
+    sa.sa_flags = 0;
+    if(sigaction(SIGINT, &sa, nullptr) < 0) {
+        std::perror("sigaction");
+    }
+    
+    return run_execution_gateway(stop, port, max_size);
+    
+}
+#endif
