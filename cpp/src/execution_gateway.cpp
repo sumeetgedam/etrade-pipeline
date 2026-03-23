@@ -1,3 +1,7 @@
+// execution_gate with OrderManager + Risj Chescks  _ CANCEL supprt
+// Provides run_executoin_gateway(stop, port, max_size) and legacy main for stndalone
+
+
 #include <arpa/inet.h>
 #include <chrono>
 #include <csignal>
@@ -21,6 +25,8 @@
 
 #include "../include/order_book.h"
 #include "../include/book_registry.h"
+#include "../include/order_manager.h"
+#include "../include/risk.h"
 
 using namespace std::chrono_literals;
 
@@ -98,7 +104,10 @@ static std::pair<double, double> read_top_of_book(const std::string &sym) {
 
 
 // handle a single client cnnection ( line - based protocol )
-void handle_client(std::atomic<bool> &stop, int fd, long long max_size) {
+//  supports ORDER and CANCEL command
+// ORDER|<cl_ord_id>|<side>|<symbol>|<price>|<size>\n
+// CANCEL|<cl_ord_od>\n
+void handle_client(std::atomic<bool> &stop, int fd, long long max_size, OrderManager* mgr) {
     std::cout << "[gateway] client handler started fd = " << fd << "\n";
     constexpr int BUF_SZ = 8192;
     std::string readbuf;
@@ -134,104 +143,124 @@ void handle_client(std::atomic<bool> &stop, int fd, long long max_size) {
 
             std::cout << "[gateway] received line : '" << line << "'\n";
 
-            // expected ORDER|<cl_ord_id>|<side>|<symbol>|<price>|<size>
+            // parse parts
             std::vector<std::string> parts;
             std::istringstream iss(line);
             std::string token;
             while(std::getline(iss, token, '|')) parts.push_back(token);
-            if(parts.size() < 6 || parts[0] != "ORDER") {
-                std::string resp = "REJ||bad_format\n";
-                ::send(fd, resp.data(), resp.size(), 0);
-                rejected_orders.fetch_add(1);
-                continue;
-            }
-            std::string clid = parts[1];
-            std::string side = parts[2];
-            std::string sym = parts[3];
-            double price = 0.0;
-            long long size = 0;
-            try { price = std::stod(parts[4]); } catch(...) { price = NAN; }
-            try { size = std::stoll(parts[5]); } catch(...) { size = LLONG_MIN; }
+            if(parts.empty()) continue;
 
-            // pre-trade risk checks
-            if(size <= 0 || size == LLONG_MIN ) {
-                std::string resp = "REJ|" + clid + "|bad_size\n";
-                ::send(fd, resp.data(), resp.size(), 0);
-                rejected_orders.fetch_add(1);
-                continue;
-            }
-
-            if(size > max_size) {
-                std::string resp = "REJ|" + clid + "|size_exceeds_limit\n";
-                ::send(fd, resp.data(), resp.size(), 0);
-                rejected_orders.fetch_add(1);
-                continue;
-            }
-
-            // accept order
-            std::string ack = "ACK|" + clid + "\n";
-            ::send(fd, ack.data(), ack.size() , 0);
-            processed_orders.fetch_add(1);
-
-            // try in-process OrderBook first
-            OrderBook* ob = get_global_order_book();
-            if(ob) {
-                // build order object and call match order
-                OrderBook::Order in;
-                in.clid = clid;
-                in.side = (side=="BUY") ? OrderBook::Order::BUY : OrderBook::Order::SELL;
-                in.symbol = sym;
-                in.price = price;
-                in.size = size;
-
-                auto fills = ob->match_order(in);
-                for(const auto &f : fills) {
-                    std::ostringstream os;
-                    os << "FILL|" << f.clid << "|" << f.size << "|" <<std::fixed << std::setprecision(2) << f.price << "\n";
-                    std::string fill = os.str();
-                    ::send(fd, fill.data(), fill.size(), 0);
-                    filled_orders.fetch_add(1);
+            if(parts[0] == "ORDER"){
+                if(parts.size() < 6 ) {
+                    std::string resp = "REJ||bad_format\n";
+                    ::send(fd, resp.data(), resp.size(), 0);
+                    rejected_orders.fetch_add(1);
+                    continue;
                 }
-            }else{
-                // fallback existing file based top-of-book logic unchanged
-                // read top-of-book snapshot to decide an immediate fill
-                auto [best_bid, best_offer] = read_top_of_book(sym);
-                if(!std::isnan(best_bid) && !std::isnan(best_offer)) {
-                    if(side == "BUY") {
-                        if(!std::isnan(best_offer) && price >= best_offer) {
-                            std::ostringstream os;
-                            os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << best_offer << "\n";
-                            std::string fill = os.str();
-                            ::send(fd, fill.data(), fill.size(), 0);
-                            filled_orders.fetch_add(1);
-                        }
-                    }else{
-                        if(!std::isnan(best_bid) && price <= best_bid) {
-                            std::ostringstream os;
-                            os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << best_bid << "\n";
-                            std::string fill = os.str();
-                            ::send(fd, fill.data(), fill.size(), 0);
-                            filled_orders.fetch_add(1);
+                std::string clid = parts[1];
+                std::string side = parts[2];
+                std::string sym = parts[3];
+                double price = 0.0;
+                long long size = 0;
+                try { price = std::stod(parts[4]); } catch(...) { price = NAN; }
+                try { size = std::stoll(parts[5]); } catch(...) { size = LLONG_MIN; }
+                
+                // pre-trade risk checks
+                if(size <= 0 || size == LLONG_MIN ) {
+                    std::string resp = "REJ|" + clid + "|bad_size\n";
+                    ::send(fd, resp.data(), resp.size(), 0);
+                    rejected_orders.fetch_add(1);
+                    continue;
+                }
 
+                if(size > max_size) {
+                    std::string resp = "REJ|" + clid + "|size_exceeds_limit\n";
+                    ::send(fd, resp.data(), resp.size(), 0);
+                    rejected_orders.fetch_add(1);
+                    continue;
+                }
+
+                // accept order
+                std::string ack = "ACK|" + clid + "\n";
+                ::send(fd, ack.data(), ack.size() , 0);
+
+                // if in-prcess manager avaialble , use it
+                // otherwise fallbakc to file sapshot logic
+                if(mgr) {
+                    OrderBook::Order in;
+                    in.clid = clid;
+                    in.side = (side=="BUY") ? OrderBook::Order::BUY : OrderBook::Order::SELL;
+                    in.symbol = sym;
+                    in.price = price;
+                    in.size = size;
+                    auto r = mgr->submit_order(in);
+                    if(!r.accepted) {
+                        std::string rej = "REJ|" + clid + "|" + r.reason + "\n";
+                        ::send(fd, rej.data(), rej.size(), 0);
+                        continue;
+                    }
+
+                    for(const auto &f: r.fills) {
+                        std::ostringstream os;
+                        os << "FILL|" << f.clid << "|" << f.size << "|" << std::fixed << std::setprecision(2) << f.price << "\n";
+                        std::string fill = os.str();
+                        ::send(fd, fill.data(), fill.size(), 0);
+                    }
+                }else{
+                    // fallback existing file based top-of-book logic unchanged
+                    // read top-of-book snapshot to decide an immediate fill
+                    auto [best_bid, best_offer] = read_top_of_book(sym);
+                    if(!std::isnan(best_bid) && !std::isnan(best_offer)) {
+                        if(side == "BUY") {
+                            if(!std::isnan(best_offer) && price >= best_offer) {
+                                std::ostringstream os;
+                                os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << best_offer << "\n";
+                                std::string fill = os.str();
+                                ::send(fd, fill.data(), fill.size(), 0);
+                                filled_orders.fetch_add(1);
+                            }
+                        }else{
+                            if(!std::isnan(best_bid) && price <= best_bid) {
+                                std::ostringstream os;
+                                os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << best_bid << "\n";
+                                std::string fill = os.str();
+                                ::send(fd, fill.data(), fill.size(), 0);
+                                filled_orders.fetch_add(1);
+
+                            }
                         }
                     }
                 }
+            }else if(parts[0] == "CANCEL") {
+                // CANCEL|<cl_ord_id>
+                if(parts.size() < 2) {
+                    std::string resp = "REJ||bad_format\n";
+                    ::send(fd, resp.data(), resp.size(), 0);
+                    continue;
+                }
+                std::string clid = parts[1];
+                if(!mgr) {
+                    std::string resp = "REJ|" + clid + " |no_order_manager\n";
+                    ::send(fd, resp.data(), resp.size(), 0);
+                    continue;
+                }
+                int64_t canceled = 0;
+                if (mgr->cancel_order(clid, canceled)) {
+                    std::ostringstream os;
+                    os << "CAL|" << clid << "|" << canceled << "\n";
+                    std::string cxl = os.str();
+                    ::send(fd, cxl.data(), cxl.size(), 0);
+
+                }else{
+                    std::string resp = "REJ|" + clid + "|not_found_or_filled\n";
+                    ::send(fd, resp.data(), resp.size(), 0);
+
+                }
+            }else {
+                std::string resp = "REJ||unknown_cmd\n";
+                ::send(fd, resp.data(), resp.size(), 0);
             }
-
             
-
-            // simulate immediate fill if crossing
-            // if(do_fill) {
-            //     std::ostringstream os;
-            //     os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << fill_price << "\n";
-            //     std::string fill = os.str();
-            //     ::send(fd, fill.data(), fill.size(), 0);
-            //     filled_orders.fetch_add(1);
-            // }else{
-            //     // No immediate fill, for this simple gateway we just ACK and do not manage
-            // }
-
-
         }
     }
     close(fd);
@@ -283,6 +312,21 @@ int run_execution_gateway(std::atomic<bool> &stop, int port, long long max_size)
 
     std::thread print_thread([&stop](){ metrics_printer(stop); });
 
+    // If an in-process order book is available
+    // create manager with policy
+    OrderBook* ob = get_global_order_book();
+    std::unique_ptr<OrderManager> mgr;
+    if(ob) {
+        RiskPolicy policy;
+        policy.max_open_orders = 100000;
+        policy.max_order_size = static_cast<size_t>(max_size);
+
+        mgr.reset(new OrderManager(ob, policy));
+        std::cout << "[gateway] using in-process OrderBook with OrderMAnager\n";
+    }else{
+        std::cout << "[gateway] no in process orderBook; using snapsht fallback\n";
+    }
+
     while(!stop.load(std::memory_order_acquire)) {
         sockaddr_in peer;
         socklen_t plen = sizeof(peer);
@@ -303,7 +347,7 @@ int run_execution_gateway(std::atomic<bool> &stop, int port, long long max_size)
         std::cout << "[gateway] accepted connection from " << peer_ip << " : " << peer_port << " fd = " << c << "\n";
 
         // spawn client handler thread
-        std::thread t(handle_client, std::ref(stop), c, max_size);
+        std::thread t(handle_client, std::ref(stop), c, max_size, mgr.get());
         t.detach();
     }
 
@@ -311,7 +355,7 @@ int run_execution_gateway(std::atomic<bool> &stop, int port, long long max_size)
     close(srv);
 
     // if(print_thread.joinable()) print_thread.join();
-    // std::cout << "[execution_gateway] exiting\n";
+    std::cout << "[execution_gateway] exiting\n";
     return 0;
 }
 

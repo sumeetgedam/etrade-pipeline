@@ -23,6 +23,8 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_executable(udp_receiver 
     src/udp_receiver.cpp
     src/order_book.cpp
+    src/order_manager.cpp
+    src/risk.cpp
 )
 # Compiler flags: optimize for a development build and tune later for performance
 target_compile_options(udp_receiver PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
@@ -31,6 +33,8 @@ target_compile_options(udp_receiver PRIVATE -O2 -g -Wall -Wextra -Wpedantic)
 add_executable(execution_gateway
     src/execution_gateway.cpp
     src/order_book.cpp
+    src/order_manager.cpp
+    src/risk.cpp
 )
 # link pthread explicitly if your environment needs it for threads
 find_package(Threads REQUIRED)
@@ -44,6 +48,8 @@ add_executable(engine
     src/udp_receiver.cpp
     src/execution_gateway.cpp
     src/order_book.cpp
+    src/order_manager.cpp
+    src/risk.cpp
 )
 target_link_libraries(engine PRIVATE  Threads::Threads)
 target_include_directories(engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

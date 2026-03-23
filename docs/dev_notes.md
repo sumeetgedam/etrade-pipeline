@@ -177,3 +177,5 @@ python3 python/scripts/order_client.py --host 127.0.0.1 --port 9999 --orders 10 
 
 
 ./engine 9000 32 9999 100000 9100
+
+printf 'CANCEL|cli1\n' | nc 127.0.0.1 9999 -q 1
