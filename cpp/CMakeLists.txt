@@ -54,6 +54,28 @@ add_executable(engine
     src/risk.cpp
     src/metrics.cpp
 )
+
+add_executable( replay_sender
+    src/replay_sender.cpp
+)
+
+add_executable(udp_bench_sender
+    src/udp_bench_sender.cpp
+)
+
+add_executable(udp_latency_server
+    src/udp_latency_server.cpp
+)
+
 target_link_libraries(engine PRIVATE  Threads::Threads)
 target_include_directories(engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(engine PRIVATE ENGINE_BUILD)
+
+
+target_include_directories(replay_sender PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(replay_sender PRIVATE Threads::Threads)
+
+target_include_directories(udp_bench_sender PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+target_include_directories(udp_latency_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+

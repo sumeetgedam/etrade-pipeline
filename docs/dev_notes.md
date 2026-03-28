@@ -307,3 +307,12 @@ docker inspect -f "{{.NetworkSettings.Networks.monitoring_default.IPAddress}}" p
 
 docker exec -it etrade-dev sh -c "wget -S --timeout=3 -qO- http://172.18.0.3:9090/-/ready || echo 'wget failed $?'"
 
+
+
+cd .. && rm -rf build && mkdir build && cd build && cmake -G Ninja .. && ninja -v
+
+./udp_latency_server 9001 /tmp/recv.csv
+
+./udp_bench_sender 127.0.0.1 9001 50000 200 100000
+
+./python/scripts/compute_latency_stats.py /tmp/recv.csv
