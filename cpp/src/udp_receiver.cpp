@@ -58,6 +58,7 @@
 #include "../include/order_book.h"
 #include "../include/spsc_queue.h"
 #include "../include/book_registry.h"
+#include "../include/metrics.h"
 
 
 using namespace std::chrono_literals;
@@ -139,14 +140,17 @@ static void metrics_server(std::atomic<bool> &stop, unsigned short port) {
         // build metrics response
         std::ostringstream out;
         out << "# HELP udp_receiver_processed_events_total number of processed events\n";
-        out << "# TYPE udp_receiver_processed_events_total_counter\n";
+        out << "# TYPE udp_receiver_processed_events_total counter\n";
         out << "udp_receiver_processed_events_total " << m_processed_events.load() << "\n";
+        
         out << "# HELP udp_receiver_dropped_events_total Number of events dropped due to queue full\n";
-        out << "# TYPE udp_receiver_dropped_events_total counter \n";
-        out << "udp_receiver_dropped_evenet_total " << m_dropped_events.load() << "\n";
+        out << "# TYPE udp_receiver_dropped_events_total counter\n";
+        out << "udp_receiver_dropped_events_total " << m_dropped_events.load() << "\n";
+        
         out << "# HELP udp_receiver_batches_received_total Number of recvmmsg batches received\n";
         out << "# TYPE udp_receiver_batches_received_total counter\n";
-        out << "# udp_receiver_batches_received " << m_batches_received.load() << "\n";
+        out << "udp_receiver_batches_received " << m_batches_received.load() << "\n";
+        
         out << "# HELP udp_receiver_write_errors_total Number of write errors whe persisting events\n";
         out << "# TYPE udp_receiver_write_errors_total counter\n";
         out << "udp_receiver_write_errors_total " << m_write_errors.load() << "\n";
@@ -162,6 +166,31 @@ static void metrics_server(std::atomic<bool> &stop, unsigned short port) {
         out << "# HELP udp_receiver_queue_size Approximate queue occupany\n";
         out << "# TYPE udp_receiver_queue_size gauge\n";
         out << "udp_receiver_queue_size " << qsz << "\n";
+
+        // Order/gatewar metrics
+        out << "# HELP orders_accepted_total Number of accepted orders\n";
+        out << "# TYPE orders_accepted_total counter\n";
+        out << "orders_accepted_total " << metrics::get_order_accepted() << "\n";
+
+        out << "# HELP orders_rejected_total Number of rejected orders\n";
+        out << "# TYPE orders_rejected_total counter\n";
+        out << "orders_rejected_total " << metrics::get_order_rejected()  << "\n";
+
+        out << "# HELP orders_fills_total Number of fill events produced\n";
+        out << "# TYPE orders_fills_total counter\n";
+        out << "orders_fills_total " << metrics::get_orders_filled_count()  << "\n";
+
+        out << "# HELP orders_filled_volume_total Total quantity filled\n";
+        out << "# TYPE orders_filled_volume_total counter\n";
+        out << "orders_filled_volume_total " << metrics::get_filled_volume() << "\n";
+
+        out << "# HELP orders_canceled_total Number of orders canceled\n";
+        out << "# TYPE orders_canceled_total counter\n";
+        out << "orders_canceled_total " << metrics::get_orders_canceled() << "\n"; 
+        
+        out << "# HELP orders_open Gauge of currently open orders\n";
+        out << "# TYPE orders_open gauge\n";
+        out << "orders_open " << metrics::get_open_orders()  << "\n"; 
 
         std::string body = out.str();
         std::ostringstream hdr;

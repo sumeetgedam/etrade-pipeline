@@ -1,0 +1,50 @@
+version: "3.8"
+
+services:
+  # engine:
+  #   build:
+  #     context: .
+  #     dockerfile: engine/Dockerfile
+  #   container_name: ull_engine
+  #   # engine writes to /workspace/data
+  #   # mount a host dir if you want persistence or inspect files
+  #   volumes:
+  #     - ./engine_data:/workspace/data
+  #   ports:
+  #     - "9000:9000" # market UDP port (optional)
+  #     - "9999:9999" # gateway TCP port
+  #     - "9100:9100" # metrics
+  #   restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    # depends_on:
+    #   - engine
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_PLUGINS_PREINSTALL_SYNC=grafana-piechart-panel
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    # depends_on:
+    #   - prometheus
+  
+  

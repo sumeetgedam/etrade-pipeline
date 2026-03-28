@@ -27,6 +27,7 @@
 #include "../include/book_registry.h"
 #include "../include/order_manager.h"
 #include "../include/risk.h"
+#include "../include/metrics.h"
 
 using namespace std::chrono_literals;
 
@@ -38,9 +39,9 @@ using namespace std::chrono_literals;
 // }
 
 // simple counters
-static std::atomic<uint64_t> processed_orders{0};
-static std::atomic<uint64_t> rejected_orders{0};
-static std::atomic<uint64_t> filled_orders{0};
+// static std::atomic<uint64_t> processed_orders{0};
+// static std::atomic<uint64_t> rejected_orders{0};
+// static std::atomic<uint64_t> filled_orders{0};
 
 // conigurable limits
 static constexpr long long DEFAULT_MAX_SIZE = 1'000'000;
@@ -154,7 +155,8 @@ void handle_client(std::atomic<bool> &stop, int fd, long long max_size, OrderMan
                 if(parts.size() < 6 ) {
                     std::string resp = "REJ||bad_format\n";
                     ::send(fd, resp.data(), resp.size(), 0);
-                    rejected_orders.fetch_add(1);
+                    // rejected_orders.fetch_add(1);
+                    metrics::inc_orders_rejected();
                     continue;
                 }
                 std::string clid = parts[1];
@@ -169,14 +171,14 @@ void handle_client(std::atomic<bool> &stop, int fd, long long max_size, OrderMan
                 if(size <= 0 || size == LLONG_MIN ) {
                     std::string resp = "REJ|" + clid + "|bad_size\n";
                     ::send(fd, resp.data(), resp.size(), 0);
-                    rejected_orders.fetch_add(1);
+                    metrics::inc_orders_rejected();
                     continue;
                 }
 
                 if(size > max_size) {
                     std::string resp = "REJ|" + clid + "|size_exceeds_limit\n";
                     ::send(fd, resp.data(), resp.size(), 0);
-                    rejected_orders.fetch_add(1);
+                    metrics::inc_orders_rejected();
                     continue;
                 }
 
@@ -209,6 +211,9 @@ void handle_client(std::atomic<bool> &stop, int fd, long long max_size, OrderMan
                 }else{
                     // fallback existing file based top-of-book logic unchanged
                     // read top-of-book snapshot to decide an immediate fill
+                    
+                    metrics::inc_order_accepted();
+                    
                     auto [best_bid, best_offer] = read_top_of_book(sym);
                     if(!std::isnan(best_bid) && !std::isnan(best_offer)) {
                         if(side == "BUY") {
@@ -217,7 +222,8 @@ void handle_client(std::atomic<bool> &stop, int fd, long long max_size, OrderMan
                                 os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << best_offer << "\n";
                                 std::string fill = os.str();
                                 ::send(fd, fill.data(), fill.size(), 0);
-                                filled_orders.fetch_add(1);
+                                metrics::inc_orders_filled_count(1);
+                                metrics::add_filled_volume(static_cast<uint64_t>(size));
                             }
                         }else{
                             if(!std::isnan(best_bid) && price <= best_bid) {
@@ -225,7 +231,8 @@ void handle_client(std::atomic<bool> &stop, int fd, long long max_size, OrderMan
                                 os << "FILL|" << clid << "|" << size << "|" << std::fixed << std::setprecision(2) << best_bid << "\n";
                                 std::string fill = os.str();
                                 ::send(fd, fill.data(), fill.size(), 0);
-                                filled_orders.fetch_add(1);
+                                metrics::inc_orders_filled_count(1);
+                                metrics::add_filled_volume(static_cast<uint64_t>(size));
 
                             }
                         }
@@ -267,15 +274,15 @@ void handle_client(std::atomic<bool> &stop, int fd, long long max_size, OrderMan
 }
 
 // Periodically print counters to stdout  ( helpful while debugging)
-void metrics_printer(std::atomic<bool> &stop) {
-    while(!stop.load(std::memory_order_acquire)) {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-        std::cout << "[gateway-metrics] processed = " << processed_orders.load()
-                << " rejected = " << rejected_orders.load()
-                << " filled = " << filled_orders.load() << std::endl;
+// void metrics_printer(std::atomic<bool> &stop) {
+//     while(!stop.load(std::memory_order_acquire)) {
+//         std::this_thread::sleep_for(std::chrono::seconds(5));
+//         std::cout << "[gateway-metrics] processed = " << processed_orders.load()
+//                 << " rejected = " << rejected_orders.load()
+//                 << " filled = " << filled_orders.load() << std::endl;
 
-    }
-}
+//     }
+// }
 
 
 
@@ -310,7 +317,7 @@ int run_execution_gateway(std::atomic<bool> &stop, int port, long long max_size)
                 << " max_size = " << max_size << " (press Ctrl+C to stop)\n";
 
 
-    std::thread print_thread([&stop](){ metrics_printer(stop); });
+    // std::thread print_thread([&stop](){ metrics_printer(stop); });
 
     // If an in-process order book is available
     // create manager with policy

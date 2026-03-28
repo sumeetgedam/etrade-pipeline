@@ -1,0 +1,65 @@
+{
+    "annotations": {"list": []},
+    "editable": true,
+    "gnetId": null,
+    "graphTooltip": 0,
+    "id": null,
+    "links": [],
+    "panels": [
+        {
+            "datasource": "Prometheus",
+            "fieldConfig" : {"defaults": {}, "overrides": []},
+            "title": "Orders Accepted (rate)",
+            "type": "stat",
+            "gridPos": {"h":4, "w":6, "x":0, "y":0},
+            "targets": [
+                {"expr": "increase(orders_accepted_total[5m])", "format": "time_series", "instant": true}
+            ]
+        },
+        {
+            "datasource": "Prometheus",
+            "title": "Orders Rejected ( rate )",
+            "type": "stat",
+            "gridPos": {"h":4, "w":6, "x":6, "y":0},
+            "targets": [{"expr": "increase(orders_rejected_total[5m])", "format": "time_series", "instant": true}]
+        },
+        {
+            "datasource": "Prometheus",
+            "title": "Fills (Count, 5m)",
+            "type": "stat",
+            "gridPos": {"h":4, "w":6, "x":0, "y":4},
+            "targets": [{"expr": "increase(orders_fills_total[5m])", "format": "time_series", "instant": true} ]
+        },
+        {
+            "datasource": "Prometheus",
+            "title": "Filled Colume (5m)",
+            "type": "stat",
+            "gridPos": {"h":4, "w":6, "x":6, "y":4},
+            "targets": [{"expr": "increase(orders_filled_volume_total[5m])", "format": "time_series", "instant": true}]
+        },
+        {
+            "datasource" : "Prometheus",
+            "title": "Open Orders",
+            "type": "gauge",
+            "grindPos" : {"h": 4, "w":6, "x":0, "y": 8},
+            "targets" : [{"expr": "orders_open", "format": "time_series", "instant": true}]
+        },
+        {
+            "datasource": "Prometheus",
+            "title": "Events Processed (rate/s)",
+            "type": "graph",
+            "gridPos": {"h":6, "w":12, "x":0, "y":12},
+            "targets": [{"expr": "rate(udp_receiver_processed_events_total[1m])", "format": "time_series", "instant": true}]
+        }
+    ],
+    "schemaVersion": 30,
+    "style": "dark",
+    "tags": ["ull", "engine"],
+    "templating": {"list": []},
+    "time": {"from": "now-5m", "to": "now"},
+    "timepicker": {},
+    "timezone": "",
+    "title": "ULL Engine Overview",
+    "uid": "ull-engine-overview",
+    "version": 1
+}
