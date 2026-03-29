@@ -1,4 +1,4 @@
-# Low Ltanecy Market Engine (ULL Engine) - Current State
+# Low Latency Market Engine (ULL Engine) - Current State
 
 #### Status snapshot:
 - Completed (core): high-throughput UDP market feed receiver, L2 OrderBook application, in-process OrderManager, TCP execution gateway (simple ACK/REJ/FILL/CXL protocol), basic pre-trade risk checks, atomic Prometheus metrics + Grafana dashboard, replay sender and micro-benchmark latency harness
