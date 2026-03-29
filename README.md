@@ -1,45 +1,93 @@
-# E-Trade Pipeline - Equities L2 ( Toy ) Monorepo
+# Low Ltanecy Market Engine (ULL Engine) - Current State
 
-TL;DR
-- End-to-end toy equities L2 pipeline focused on low-latency feed ahndling, simple in-memory orderbook, and observability
-- C++20 feed handler (UDP) + orderbook core, Python FastAPI for event access and metrics, Prometheus exposition + simple UI scaffold
--Designe as a lerning and experimentaion platform for ultra low latency techniques ( zero-copy, hw timestaping, lock-free handoffs planned)
+#### Status snapshot:
+- Completed (core): high-throughput UDP market feed receiver, L2 OrderBook application, in-process OrderManager, TCP execution gateway (simple ACK/REJ/FILL/CXL protocol), basic pre-trade risk checks, atomic Prometheus metrics + Grafana dashboard, replay sender and micro-benchmark latency harness
+- In progress / partial : deterministic replay integration and test harness , write ahead event JSONL export, latency measurement tools
 
-Tech stack
-- C++20 (gcc) - feed handler, parser, minimal L2 orderbook
-- CMake + Ninja - build
-- Python 3 - FastAPI app, test sender, metrics endpoint
-- prometheus_client - scrapeable metrics endpoint
-- Docker / docker-compose - optional local Prometheus + Grafana integration
 
-Repository layout ( top-level )
-- cpp/ - C++ sources, includes, CMakeLists
-- python/ - FastAPI app, test sender, scripts
-- infra/ - prometheus.yml & docker-compose for local Prometheus/Grafana
-- scripts/ - dev helpers(scripts/dev-set-up.sh)
-- data/ - events.jsonl and snapshots
-- docs/ - architecture notes, milestones
+#### What this repo provides now
+- Market data reciever ( udp_receiver ) with recvmmsg batching and queueing
+- Order book (L2) builder and a shared global book registry used by the in-process matching engine
+- OrderManager : simple in-process order handling with basic risk checks ( max order size, max open orders ).
+- Execution gateway ( execution_gateway ) : TCP server that accepts `ORDER|...` and `CANCEL|...` plain messages and responds with `ACK|`, `REJ|`, `FILL|`, `CXL|`.
+- Metrics : atomics exported by a small HTTP metrics server at `/metrics` ( Prometheus text format ).
+- Monitoring stack: docker-compose config for Prometheus + Grafana and a provisioned "ULL Engine Overview dashboard
+- Replay tools: `replay_sender` to replay JSONL event files to a target UDP endpoint, `test_replay.py` integration test
+- Latency benchmark harness: `udp_bench_sender`, `udp_latency_server`, and `compute_latency_stats.py`
+- Helpful scripts for quick integration tests and experiments
 
-What this project implementts (current)
-- Minimal UDP receiver (cpp/src/udp_receiver.cpp) that:
-    - binds to UDP port, receives datagrams, timestamps arrival
-    - parses simple text feed messages : seq|msg_ts_ms|SYM|price|size
-    - appends parsed JSONL lines to /data/events.jsonl
-    - computes latency_ms = recv_ts_ms - msg_ts_ms
-    - forward parsed Event objects to an in-process Orderbook consumer via a TSQueue
-- Simple L2 orderbook skeleton( cpp/src/order_book.cpp) that maintains top levels per symbol and prints updates
-- Python FastAPI service (python/app/main.py) exposing :
-    - GET /events?tail=N -> last N events (JSON)
-    - GET /metrics?tail=N -> JSO/n latency stats (p50/p95/p99, hidtogram)
-    - GET /metrics_prometheus?tail=N -> Prometheus exposition (histogram + counters + percentile gauges)
-- A small python/scripts/send_udp.py to generate test messages
-- scripts/dev-setup.sh for venv creation and dependency installation
+#### High-level architecture
+- UDP market feed -> udp_receiver (recvmmsg batch) -> SPSC queue -> consumer thread -> OrderBook.apply_event -> (top-of-book snapshot written if configured)
+- Trading client -> TCP gateway -> OrderManager -> OrderBook matching -> fills reeported back via gateway
+- Metrics exposed by udp_receiver + OrderManager -> scraped by Prometheus -> Grafana dashboard
 
-Monorepo for a toy end to end electronic trading pipeline:
-- cpp/ : low-latency components ( feed handler, order book, gateway )
-- python/ : analytics, FastAPI, notebooks
-- docs/ : architecture and milestones
-- infra/ : docker-compose and infra artifacts
-- data/ : sample feeds and snapshots
 
-This is an initial scaffold. Follow the milestones in docs/milestones.md
+#### Build ( Linux )
+1. Ensure build dependencies (C/C++ toolchain, cmake, ninja). Example on Ubuntu: sudo apt update && sudo apt install -y build-essential cmake ninja-build libssl-dev
+
+2. Build:  
+    cd cpp  
+    rm -rf build && mkdir -p build && cd build  
+    cmake -G Ninja ..  
+    ninja -v
+
+#### Key binaries
+- ./cpp/build/engine - integrated engine ( udp receiver + orderbook + gateway )
+- ./cpp/build/execution_gateway - standalone gateway ( if built separately )
+- ./cpp/build/replay_sender - replay JSONL -> UDP sender
+- ./cpp/build/udp_bench_sender - latency send generator
+- ./cpp/build/udp_latency_server - latency recorder
+
+#### Quick run (local integrated engine)
+- Start engine (example ports):
+    ./cpp/build/engine 9000 32 9999 100000 9100
+    Args: <udp_port> <udp_batch_size> <gateway_port> <max_order_size> <metrics_port>
+
+- Send a simple ORDER (netcat|telnet):
+    printf 'ORDER|cli1|BUY|AAPL|101.00|10\n' | nc 127.0.0.1 9999
+
+- Query metrics:
+curl --noproxy '*' http://127.0.0.1:9100/metrics
+
+#### Monitoring (Prometheus + Grafana)
+- Files added: infra/monitoring/docker-compose.yml, prometheus/prometheus.yml, grafana provisioning + dashboard JSON
+- Start :  
+    cd infra/monitoring  
+    docker-compose up -d
+- Prometheus UI; http://localhost:9090
+- Grafana UI: http://localhost:3000
+- Prometheus targets: check `ull_engine` target is UP and scraping the engine metrics endpoint
+
+#### Replay & integration test
+- Build the replay_sender and engine as above.
+- To replay an events JSONL :  
+    ./cpp/build/replay_sender events.jsonl <target_ip> <target_udp_port> [--fast] [--scale N]
+- Quick integration test (sends a couple of UDP market messages + order):  
+    ./python/scripts/test_replay.py  
+    (ensure ./cpp/build/engine exists or set env ENGINE_BIN to binary path.)
+
+#### Latency micro-benchmark
+- Start server:  
+    ./cpp/build/udp_latency_server 9001  /tmp/recv.csv &
+- Run sender:  
+    ./cpp/build/udp_bench_sender 127.0.0.1 9001 20000 200 50000
+- Compute stats:  
+    ./python/scripts/compute_latency_stats.py /tmp/recv.csv
+
+
+#### Where state and snapshot are written
+- Top-of-Book snapshot (fallback snapshots) used gateway fallback are placed under:  
+    data/book_<SYMBOL>.json
+- UDP receiver optionall writes event JSONL for replay (see udp_reciever code).
+
+#### Observability & metrics exported
+- udp_receiver_* (processed_events, dropped_events, batches, queue_size, last_latency_ms)
+- orders_* (orders_accepted_totalm orders_rejected_total, orders_fills_total, orders_filled_volume_total, orders_canceled_total, orders_open)
+- Grafana dashboard configured to show these metrics with increase()/rate() panels
+
+#### Dev notes & recommendations
+- When running monitoring inside Docker Desktop (Windows)ensure container network can reach engine
+
+#### Testing
+- Unit tests: add tests for OrderBook level application and OrderManager, Integration test: python/scripts/test_replay.py
+- Benchmarks: use udp_bench_sender ->up_latency_server
